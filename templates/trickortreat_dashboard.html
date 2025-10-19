@@ -41,6 +41,19 @@
             </div>
         </div>
 
+        <div class="manual-controls" id="manualControls" style="display: none; margin: 20px 0; text-align: center;">
+            <h3>Manual Controls</h3>
+            <button id="addTrickOrTreaterBtn" class="control-btn" style="background-color: #4ecdc4; color: white; padding: 10px 20px; margin: 5px; border: none; border-radius: 5px; cursor: pointer;">
+                + Add Trick-or-Treater
+            </button>
+            <button id="undoLastBtn" class="control-btn" style="background-color: #ff6b35; color: white; padding: 10px 20px; margin: 5px; border: none; border-radius: 5px; cursor: pointer;">
+                - Undo Last Entry
+            </button>
+            <div id="serialStatus" style="margin-top: 10px; font-size: 0.9em; color: #666;">
+                Serial Status: <span id="serialStatusText">Checking...</span>
+            </div>
+        </div>
+
         <div class="charts-grid">
             <div class="chart-container">
                 <div class="chart-title">📊 10-Minute Distribution</div>

@@ -2,8 +2,17 @@ from flask import Flask, render_template, jsonify
 import live_control
 import json
 from datetime import datetime
+from dashboard_serial_integration import initialize_serial_integration, get_serial_integration
 
 app = Flask(__name__)
+
+# Initialize serial integration
+try:
+    serial_integration = initialize_serial_integration("COM7")  # Change port as needed
+    print("Serial integration initialized successfully")
+except Exception as e:
+    print(f"Failed to initialize serial integration: {e}")
+    serial_integration = None
 
 @app.route('/')
 def index():
@@ -77,9 +86,59 @@ def get_historical_data():
 def get_current_data():
     """Serve current year's data for live updates"""
     try:
-        with open('data/trickortreat_data.json', 'r') as f:
-            data = json.load(f)
-        return jsonify(data)
+        if serial_integration:
+            data = serial_integration.get_current_data()
+            return jsonify(data)
+        else:
+            # Fallback to file-based data
+            with open('data/trickortreat_data.json', 'r') as f:
+                data = json.load(f)
+            return jsonify(data)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/add_trick_or_treater', methods=['POST'])
+def add_trick_or_treater():
+    """Manually add a trick-or-treater (for testing or backup)"""
+    try:
+        if serial_integration:
+            serial_integration._DashboardSerialIntegration__count_btn_callback()
+            return jsonify({'success': True, 'message': 'Trick-or-treater added'})
+        else:
+            return jsonify({'error': 'Serial integration not available'}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/undo_last_entry', methods=['POST'])
+def undo_last_entry():
+    """Undo the last trick-or-treater entry"""
+    try:
+        if serial_integration:
+            serial_integration._DashboardSerialIntegration__undo_btn_callback()
+            return jsonify({'success': True, 'message': 'Last entry removed'})
+        else:
+            return jsonify({'error': 'Serial integration not available'}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/stats')
+def get_stats():
+    """Get current statistics"""
+    try:
+        if serial_integration:
+            total_count = serial_integration.get_total_count()
+            recent_count = serial_integration.get_recent_count(5)  # Last 5 minutes
+            return jsonify({
+                'total_count': total_count,
+                'recent_count': recent_count,
+                'serial_connected': True
+            })
+        else:
+            return jsonify({
+                'total_count': 0,
+                'recent_count': 0,
+                'serial_connected': False
+            })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

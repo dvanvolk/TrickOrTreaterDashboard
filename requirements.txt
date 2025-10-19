@@ -2,4 +2,5 @@ Flask
 Flask-Cors
 pandas
 numpy
-chart.js
+pyserial
+schedule
