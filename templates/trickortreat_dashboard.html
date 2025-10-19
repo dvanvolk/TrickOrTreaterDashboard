@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>🎃 Trick-or-Treater Dashboard</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-adapter-date-fns/2.0.0/chartjs-adapter-date-fns.bundle.min.js"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
 </head>
 <body>
@@ -62,16 +61,39 @@
     <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
     <script src="{{ url_for('static', filename='js/chart-helpers.js') }}"></script>
     <script>
-        let liveDataEnabled = false;
-
-        function toggleLiveData() {
-            liveDataEnabled = !liveDataEnabled;
-            document.getElementById('liveStatus').textContent = liveDataEnabled ? 'Live' : 'Disabled';
-            document.getElementById('statusIndicator').className = liveDataEnabled ? 'status-indicator status-live' : '';
-            document.getElementById('statsGrid').style.display = liveDataEnabled ? 'grid' : 'none';
+        // Connect to backend for live status
+        async function checkLiveStatus() {
+            try {
+                const response = await fetch('/live_status');
+                const data = await response.json();
+                if (data.live !== liveStatus) {
+                    liveStatus = data.live;
+                    updateLiveStatusDisplay();
+                    updateStatsVisibility();
+                }
+            } catch (error) {
+                console.error('Error checking live status:', error);
+            }
         }
 
-        // Call toggleLiveData() based on your control logic from live_control.py
+        // Toggle live status via backend
+        async function toggleLiveData() {
+            try {
+                const response = await fetch('/toggle_live', { method: 'POST' });
+                const data = await response.json();
+                liveStatus = data.live;
+                updateLiveStatusDisplay();
+                updateStatsVisibility();
+            } catch (error) {
+                console.error('Error toggling live status:', error);
+            }
+        }
+
+        // Check live status periodically
+        setInterval(checkLiveStatus, 5000);
+
+        // Make toggleLiveData globally available
+        window.toggleLiveData = toggleLiveData;
     </script>
 </body>
 </html>

@@ -1,21 +1,33 @@
-def enable_live_status():
-    # Code to enable live status and show the counter
-    print("Live status enabled. Counter is now visible.")
+# Global variable to track live status
+_live_status = False
 
-def disable_live_status():
-    # Code to disable live status and hide the counter
-    print("Live status disabled. Counter is now hidden.")
+def is_live():
+    """Return the current live status"""
+    return _live_status
 
-def toggle_live_status(current_status):
-    if current_status:
-        disable_live_status()
-        return False
+def set_live(status):
+    """Set the live status"""
+    global _live_status
+    _live_status = status
+    if status:
+        print("Live status enabled. Counter is now visible.")
     else:
-        enable_live_status()
-        return True
+        print("Live status disabled. Counter is now hidden.")
+
+def toggle_live():
+    """Toggle the live status and return the new status"""
+    global _live_status
+    _live_status = not _live_status
+    if _live_status:
+        print("Live status enabled. Counter is now visible.")
+    else:
+        print("Live status disabled. Counter is now hidden.")
+    return _live_status
 
 # Example usage
 if __name__ == "__main__":
-    live_status = False  # Initial status
-    live_status = toggle_live_status(live_status)  # Toggle the live status
-    live_status = toggle_live_status(live_status)  # Toggle again to disable
+    print(f"Initial status: {is_live()}")
+    toggle_live()
+    print(f"After toggle: {is_live()}")
+    toggle_live()
+    print(f"After second toggle: {is_live()}")

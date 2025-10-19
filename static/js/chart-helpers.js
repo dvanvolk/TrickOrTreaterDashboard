@@ -1,12 +1,6 @@
 // This file contains helper functions for managing and updating charts displayed on the dashboard.
 
-let liveStatus = false;
-
-function setLiveStatus(status) {
-    liveStatus = status;
-    updateCounterVisibility();
-}
-
+// Helper functions for chart management
 function updateCounterVisibility() {
     const counterElements = document.querySelectorAll('.stat-card');
     counterElements.forEach(card => {
@@ -17,10 +11,4 @@ function updateCounterVisibility() {
 function updateLiveStatusIndicator() {
     const statusIndicator = document.getElementById('status');
     statusIndicator.textContent = liveStatus ? 'Status: Live' : 'Status: Disabled';
-}
-
-// Call this function to initialize the live status on page load
-function initializeLiveStatus(initialStatus) {
-    setLiveStatus(initialStatus);
-    updateLiveStatusIndicator();
 }
