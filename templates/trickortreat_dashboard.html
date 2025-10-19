@@ -69,6 +69,17 @@
             <div class="chart-title">📈 Year-over-Year Comparison</div>
             <canvas id="yearComparisonChart"></canvas>
         </div>
+
+        <div class="charts-grid">
+            <div class="chart-container">
+                <div class="chart-title">📊 Year Summary Statistics</div>
+                <canvas id="yearStatsChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <div class="chart-title">🔥 Peak Activity Times</div>
+                <canvas id="peakActivityChart"></canvas>
+            </div>
+        </div>
     </div>
 
     <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>

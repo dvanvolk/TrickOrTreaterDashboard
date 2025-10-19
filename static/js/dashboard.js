@@ -83,6 +83,8 @@ function setupCharts() {
     setupMinuteChart();
     setupTimelineChart();
     setupYearComparisonChart();
+    setupYearStatsChart();
+    setupPeakActivityChart();
 }
 
 function setupMinuteChart() {
@@ -172,29 +174,176 @@ function setupYearComparisonChart() {
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            interaction: {
+                intersect: false,
+                mode: 'index'
+            },
             scales: {
                 x: {
                     title: {
                         display: true,
                         text: 'Time of Day'
+                    },
+                    grid: {
+                        display: true,
+                        color: 'rgba(0,0,0,0.1)'
                     }
                 },
                 y: {
                     beginAtZero: true,
                     title: {
                         display: true,
-                        text: 'Average Trick-or-Treaters'
+                        text: 'Trick-or-Treaters'
+                    },
+                    grid: {
+                        display: true,
+                        color: 'rgba(0,0,0,0.1)'
                     }
                 }
             },
             plugins: {
                 legend: {
                     display: true,
-                    position: 'top'
+                    position: 'top',
+                    labels: {
+                        usePointStyle: true,
+                        padding: 20
+                    }
                 },
                 title: {
                     display: true,
-                    text: 'Year-over-Year Comparison by Time of Day'
+                    text: 'Year-over-Year Comparison: Trick-or-Treater Activity by Time',
+                    font: {
+                        size: 16,
+                        weight: 'bold'
+                    }
+                },
+                tooltip: {
+                    backgroundColor: 'rgba(0,0,0,0.8)',
+                    titleColor: 'white',
+                    bodyColor: 'white',
+                    borderColor: 'rgba(255,255,255,0.2)',
+                    borderWidth: 1,
+                    callbacks: {
+                        title: function(context) {
+                            return 'Time: ' + context[0].label;
+                        },
+                        label: function(context) {
+                            return context.dataset.label + ': ' + context.parsed.y + ' visitors';
+                        }
+                    }
+                }
+            },
+            elements: {
+                line: {
+                    tension: 0.4,
+                    borderWidth: 3
+                },
+                point: {
+                    radius: 5,
+                    hoverRadius: 8,
+                    borderWidth: 2
+                }
+            }
+        }
+    });
+}
+
+function setupYearStatsChart() {
+    const ctx = document.getElementById('yearStatsChart').getContext('2d');
+    charts.yearStats = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: [],
+            datasets: [{
+                label: 'Total Trick-or-Treaters',
+                data: [],
+                backgroundColor: '#4ecdc4',
+                borderColor: '#4ecdc4',
+                borderWidth: 2
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    title: {
+                        display: true,
+                        text: 'Total Count'
+                    }
+                },
+                x: {
+                    title: {
+                        display: true,
+                        text: 'Year'
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    display: false
+                },
+                title: {
+                    display: true,
+                    text: 'Total Trick-or-Treaters by Year'
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return 'Total: ' + context.parsed.y + ' visitors';
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+function setupPeakActivityChart() {
+    const ctx = document.getElementById('peakActivityChart').getContext('2d');
+    charts.peakActivity = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: [],
+            datasets: [{
+                data: [],
+                backgroundColor: [
+                    '#ff6b35',
+                    '#4ecdc4', 
+                    '#45b7d1',
+                    '#96ceb4',
+                    '#feca57',
+                    '#ff9ff3'
+                ],
+                borderWidth: 2,
+                borderColor: '#fff'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: {
+                        padding: 20,
+                        usePointStyle: true
+                    }
+                },
+                title: {
+                    display: true,
+                    text: 'Peak Activity Distribution'
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            const label = context.label || '';
+                            const value = context.parsed;
+                            return label + ': ' + value + ' visitors';
+                        }
+                    }
                 }
             }
         }
@@ -237,6 +386,10 @@ function updateYearComparisonChart() {
     charts.yearComparison.data.labels = timeSlots;
     charts.yearComparison.data.datasets = datasets;
     charts.yearComparison.update();
+    
+    // Update additional charts
+    updateYearStatsChart();
+    updatePeakActivityChart();
 }
 
 function updateTimelineChart() {
@@ -288,6 +441,46 @@ function updateStats() {
         const lastTime = new Date(lastEntry.timestamp).toLocaleTimeString();
         document.getElementById('lastVisitor').textContent = lastTime;
     }
+}
+
+function updateYearStatsChart() {
+    if (!charts.yearStats || !historicalData) return;
+    
+    const years = Object.keys(historicalData).sort();
+    const totals = years.map(year => {
+        return Object.values(historicalData[year]).reduce((sum, timeData) => sum + timeData.total, 0);
+    });
+    
+    charts.yearStats.data.labels = years;
+    charts.yearStats.data.datasets[0].data = totals;
+    charts.yearStats.update();
+}
+
+function updatePeakActivityChart() {
+    if (!charts.peakActivity || !historicalData) return;
+    
+    // Find the top 6 most active time slots across all years
+    const timeSlotTotals = {};
+    Object.values(historicalData).forEach(yearData => {
+        Object.entries(yearData).forEach(([timeSlot, data]) => {
+            if (!timeSlotTotals[timeSlot]) {
+                timeSlotTotals[timeSlot] = 0;
+            }
+            timeSlotTotals[timeSlot] += data.total;
+        });
+    });
+    
+    // Sort by total activity and take top 6
+    const topTimeSlots = Object.entries(timeSlotTotals)
+        .sort(([,a], [,b]) => b - a)
+        .slice(0, 6);
+    
+    const labels = topTimeSlots.map(([timeSlot]) => timeSlot);
+    const data = topTimeSlots.map(([, total]) => total);
+    
+    charts.peakActivity.data.labels = labels;
+    charts.peakActivity.data.datasets[0].data = data;
+    charts.peakActivity.update();
 }
 
 // Auto-refresh data when live
