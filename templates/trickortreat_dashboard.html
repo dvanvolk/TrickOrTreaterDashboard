@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎃 Trick-or-Treater Dashboard</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-adapter-date-fns/2.0.0/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎃 Trick-or-Treater Dashboard 👻</h1>
+            <p>Live tracking of Halloween visitors</p>
+            <div style="margin-top: 15px;">
+                <span id="status">Status: <span id="liveStatus">Disabled</span> <span class="status-indicator" id="statusIndicator"></span></span>
+                <span style="margin-left: 30px; font-size: 1.1em; color: #ff6b35;">⏱️ Live Time: <span id="liveTimer">00:00:00</span></span>
+            </div>
+        </div>
+
+        <div class="stats-grid" id="statsGrid">
+            <div class="stat-card">
+                <div class="stat-number" id="totalToday">0</div>
+                <div class="stat-label">Total Today</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="currentMinute">0</div>
+                <div class="stat-label">This 5 Minutes</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="peakMinute">--</div>
+                <div class="stat-label">Peak 10-Min</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="avgPerMinute">0.0</div>
+                <div class="stat-label">Avg/Min</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="lastVisitor">--</div>
+                <div class="stat-label">Last Visitor</div>
+            </div>
+        </div>
+
+        <div class="charts-grid">
+            <div class="chart-container">
+                <div class="chart-title">📊 10-Minute Distribution</div>
+                <canvas id="minuteChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <div class="chart-title">⏰ Live Timeline</div>
+                <canvas id="timelineChart"></canvas>
+            </div>
+        </div>
+
+        <div class="chart-container full-width">
+            <div class="chart-title">📈 Year-over-Year Comparison</div>
+            <canvas id="yearComparisonChart"></canvas>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/chart-helpers.js') }}"></script>
+    <script>
+        let liveDataEnabled = false;
+
+        function toggleLiveData() {
+            liveDataEnabled = !liveDataEnabled;
+            document.getElementById('liveStatus').textContent = liveDataEnabled ? 'Live' : 'Disabled';
+            document.getElementById('statusIndicator').className = liveDataEnabled ? 'status-indicator status-live' : '';
+            document.getElementById('statsGrid').style.display = liveDataEnabled ? 'grid' : 'none';
+        }
+
+        // Call toggleLiveData() based on your control logic from live_control.py
+    </script>
+</body>
+</html>
