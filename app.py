@@ -94,14 +94,16 @@ def get_historical_data():
 def get_current_data():
     """Serve current year's data for live updates"""
     try:
+        # Only return data if live mode is enabled and serial is connected
+        if not live_control.is_live():
+            return jsonify([])  # Return empty array when not live
+        
         if serial_integration:
             data = serial_integration.get_current_data()
             return jsonify(data)
         else:
-            # Fallback to file-based data
-            with open('data/trickortreat_data.json', 'r') as f:
-                data = json.load(f)
-            return jsonify(data)
+            # No serial connection - return empty array
+            return jsonify([])
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
