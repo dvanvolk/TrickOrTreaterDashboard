@@ -17,7 +17,6 @@ document.addEventListener('DOMContentLoaded', function() {
     initializeDashboard();
     loadHistoricalData();
     setupCharts();
-    startLiveTimer();
 });
 
 // Live status management
@@ -30,13 +29,16 @@ function toggleLiveStatus() {
 function updateLiveStatusDisplay() {
     const statusElement = document.getElementById('liveStatus');
     const statusIndicator = document.getElementById('statusIndicator');
+    const liveTimeContainer = document.getElementById('liveTimeContainer');
 
     if (liveStatus) {
         statusElement.textContent = 'Live';
         statusIndicator.className = 'status-indicator status-live';
+        if (liveTimeContainer) liveTimeContainer.style.display = 'inline';
     } else {
         statusElement.textContent = 'Disabled';
         statusIndicator.className = 'status-indicator';
+        if (liveTimeContainer) liveTimeContainer.style.display = 'none';
     }
 }
 
@@ -45,16 +47,7 @@ function updateStatsVisibility() {
     statsGrid.style.display = liveStatus ? 'grid' : 'none';
 }
 
-// Live timer functionality
-function startLiveTimer() {
-    setInterval(updateLiveTimer, 1000);
-}
-
-function updateLiveTimer() {
-    const now = new Date();
-    const timeString = now.toLocaleTimeString();
-    document.getElementById('liveTimer').textContent = timeString;
-}
+// Live timer display is driven by server-reported elapsed time in inline script
 
 // Data loading
 async function loadHistoricalData() {
@@ -490,69 +483,16 @@ setInterval(() => {
     }
 }, 30000); // Update every 30 seconds
 
-// Manual controls
-function setupManualControls() {
-    const addBtn = document.getElementById('addTrickOrTreaterBtn');
-    const undoBtn = document.getElementById('undoLastBtn');
-    
-    if (addBtn) {
-        addBtn.addEventListener('click', async () => {
-            try {
-                const response = await fetch('/add_trick_or_treater', { method: 'POST' });
-                const data = await response.json();
-                if (data.success) {
-                    console.log('Trick-or-treater added manually');
-                    loadCurrentData(); // Refresh data
-                } else {
-                    console.error('Failed to add trick-or-treater:', data.error);
-                }
-            } catch (error) {
-                console.error('Error adding trick-or-treater:', error);
-            }
-        });
-    }
-    
-    if (undoBtn) {
-        undoBtn.addEventListener('click', async () => {
-            try {
-                const response = await fetch('/undo_last_entry', { method: 'POST' });
-                const data = await response.json();
-                if (data.success) {
-                    console.log('Last entry undone');
-                    loadCurrentData(); // Refresh data
-                } else {
-                    console.error('Failed to undo entry:', data.error);
-                }
-            } catch (error) {
-                console.error('Error undoing entry:', error);
-            }
-        });
-    }
-}
+// Manual controls removed from UI
 
 // Check serial status
 async function checkSerialStatus() {
     try {
         const response = await fetch('/stats');
         const data = await response.json();
-        
-        const statusElement = document.getElementById('serialStatusText');
-        if (statusElement) {
-            if (data.serial_connected) {
-                statusElement.textContent = 'Connected';
-                statusElement.style.color = '#4ecdc4';
-            } else {
-                statusElement.textContent = 'Disconnected';
-                statusElement.style.color = '#ff6b35';
-            }
-        }
-        
-        // Show manual controls if serial is disconnected
-        const manualControls = document.getElementById('manualControls');
-        if (manualControls) {
-            manualControls.style.display = data.serial_connected ? 'none' : 'block';
-        }
-        
+        // Log serial connection status to console for debugging
+        console.debug('Serial connected:', data.serial_connected);
+
         return data.serial_connected;
     } catch (error) {
         console.error('Error checking serial status:', error);
@@ -564,9 +504,7 @@ async function checkSerialStatus() {
 function initializeDashboard() {
     updateLiveStatusDisplay();
     updateStatsVisibility();
-    setupManualControls();
+    // Serial status UI removed; continue to log status to console for debugging
     checkSerialStatus();
-    
-    // Check serial status periodically
-    setInterval(checkSerialStatus, 10000); // Check every 10 seconds
+    setInterval(checkSerialStatus, 10000);
 }

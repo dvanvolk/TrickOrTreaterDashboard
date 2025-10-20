@@ -14,7 +14,7 @@
             <p>Live tracking of Halloween visitors</p>
             <div style="margin-top: 15px;">
                 <span id="status">Status: <span id="liveStatus">Disabled</span> <span class="status-indicator" id="statusIndicator"></span></span>
-                <span style="margin-left: 30px; font-size: 1.1em; color: #ff6b35;">⏱️ Live Time: <span id="liveTimer">00:00:00</span></span>
+                <span id="liveTimeContainer" style="display:none; margin-left: 30px; font-size: 1.1em; color: #ff6b35;">⏱️ Live Time: <span id="liveTimer">00:00</span></span>
             </div>
         </div>
 
@@ -41,18 +41,7 @@
             </div>
         </div>
 
-        <div class="manual-controls" id="manualControls" style="display: none; margin: 20px 0; text-align: center;">
-            <h3>Manual Controls</h3>
-            <button id="addTrickOrTreaterBtn" class="control-btn" style="background-color: #4ecdc4; color: white; padding: 10px 20px; margin: 5px; border: none; border-radius: 5px; cursor: pointer;">
-                + Add Trick-or-Treater
-            </button>
-            <button id="undoLastBtn" class="control-btn" style="background-color: #ff6b35; color: white; padding: 10px 20px; margin: 5px; border: none; border-radius: 5px; cursor: pointer;">
-                - Undo Last Entry
-            </button>
-            <div id="serialStatus" style="margin-top: 10px; font-size: 0.9em; color: #666;">
-                Serial Status: <span id="serialStatusText">Checking...</span>
-            </div>
-        </div>
+        
 
         <div class="charts-grid">
             <div class="chart-container">
@@ -95,29 +84,20 @@
                     updateLiveStatusDisplay();
                     updateStatsVisibility();
                 }
+                // Update HH:MM live timer from server elapsed seconds
+                const seconds = data.elapsed_seconds || 0;
+                const minutes = Math.floor(seconds / 60);
+                const hours = Math.floor(minutes / 60);
+                const mm = String(minutes % 60).padStart(2, '0');
+                const hh = String(hours).padStart(2, '0');
+                document.getElementById('liveTimer').textContent = `${hh}:${mm}`;
             } catch (error) {
                 console.error('Error checking live status:', error);
             }
         }
 
-        // Toggle live status via backend
-        async function toggleLiveData() {
-            try {
-                const response = await fetch('/toggle_live', { method: 'POST' });
-                const data = await response.json();
-                liveStatus = data.live;
-                updateLiveStatusDisplay();
-                updateStatsVisibility();
-            } catch (error) {
-                console.error('Error toggling live status:', error);
-            }
-        }
-
         // Check live status periodically
         setInterval(checkLiveStatus, 5000);
-
-        // Make toggleLiveData globally available
-        window.toggleLiveData = toggleLiveData;
     </script>
 </body>
 </html>

@@ -20,12 +20,20 @@ def index():
 
 @app.route('/live_status', methods=['GET'])
 def get_live_status():
-    return jsonify({'live': live_control.is_live()})
+    return jsonify({'live': live_control.is_live(), 'elapsed_seconds': live_control.get_elapsed_seconds()})
 
-@app.route('/toggle_live', methods=['POST'])
-def toggle_live():
-    live_control.toggle_live()
-    return jsonify({'live': live_control.is_live()})
+@app.route('/set_live', methods=['POST'])
+def set_live():
+    """Set live on/off via backend control (not from the webpage)."""
+    try:
+        # Expect JSON: {"live": true/false}
+        from flask import request
+        body = request.get_json(silent=True) or {}
+        desired = bool(body.get('live', False))
+        live_control.set_live(desired)
+        return jsonify({'live': live_control.is_live(), 'elapsed_seconds': live_control.get_elapsed_seconds()})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
 
 @app.route('/historical_data')
 def get_historical_data():
