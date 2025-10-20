@@ -504,9 +504,13 @@ function updateStats() {
     // Calculate current 5-minute period
     const now = new Date();
     const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
-    const recentData = currentData.filter(entry => 
-        new Date(entry.timestamp) >= fiveMinutesAgo
-    );
+    
+    const recentData = currentData.filter(entry => {
+        // Remove 'Z' suffix and treat as local time
+        const timestamp = entry.timestamp.replace('Z', '');
+        const entryTime = new Date(timestamp);
+        return entryTime >= fiveMinutesAgo;
+    });
     const currentMinute = recentData.reduce((sum, entry) => sum + entry.count, 0);
     document.getElementById('currentMinute').textContent = currentMinute;
     
