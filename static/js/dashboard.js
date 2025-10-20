@@ -65,6 +65,7 @@ async function loadCurrentData() {
         const response = await fetch('/current_data');
         currentData = await response.json();
         updateTimelineChart();
+        updateMinuteChart();
         updateStats();
     } catch (error) {
         console.error('Error loading current data:', error);
@@ -399,6 +400,30 @@ function updateTimelineChart() {
     charts.timeline.update();
 }
 
+function updateMinuteChart() {
+    if (!charts.minute || !currentData) return;
+    
+    // Group data by 10-minute intervals
+    const minuteGroups = {};
+    currentData.forEach(entry => {
+        const date = new Date(entry.timestamp);
+        const minutes = Math.floor(date.getMinutes() / 10) * 10;
+        const timeKey = `${date.getHours().toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+        
+        if (!minuteGroups[timeKey]) {
+            minuteGroups[timeKey] = 0;
+        }
+        minuteGroups[timeKey] += entry.count;
+    });
+    
+    const labels = Object.keys(minuteGroups).sort();
+    const data = labels.map(label => minuteGroups[label]);
+    
+    charts.minute.data.labels = labels;
+    charts.minute.data.datasets[0].data = data;
+    charts.minute.update();
+}
+
 function updateStats() {
     if (!currentData || currentData.length === 0) return;
     
@@ -481,7 +506,7 @@ setInterval(() => {
     if (liveStatus) {
         loadCurrentData();
     }
-}, 30000); // Update every 30 seconds
+}, 2000); // Update every 2 seconds when live
 
 // Manual controls removed from UI
 

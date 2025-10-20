@@ -8,10 +8,11 @@ app = Flask(__name__)
 
 # Initialize serial integration
 try:
-    serial_integration = initialize_serial_integration("COM7")  # Change port as needed
+    serial_integration = initialize_serial_integration("COM3")  # Change port as needed
     print("Serial integration initialized successfully")
 except Exception as e:
-    print(f"Failed to initialize serial integration: {e}")
+    print(f"Serial integration unavailable (COM3 access denied): {e}")
+    print("Dashboard will use file-based data when live mode is enabled")
     serial_integration = None
 
 @app.route('/')
@@ -94,7 +95,7 @@ def get_historical_data():
 def get_current_data():
     """Serve current year's data for live updates"""
     try:
-        # Only return data if live mode is enabled and serial is connected
+        # Only return data if live mode is enabled
         if not live_control.is_live():
             return jsonify([])  # Return empty array when not live
         
@@ -102,8 +103,14 @@ def get_current_data():
             data = serial_integration.get_current_data()
             return jsonify(data)
         else:
-            # No serial connection - return empty array
-            return jsonify([])
+            # Serial integration failed, but data might be in JSON file
+            # Read from file as fallback when live mode is enabled
+            try:
+                with open('data/trickortreat_data.json', 'r') as f:
+                    data = json.load(f)
+                return jsonify(data)
+            except FileNotFoundError:
+                return jsonify([])
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
