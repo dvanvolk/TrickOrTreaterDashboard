@@ -108,7 +108,10 @@ def get_current_data():
             try:
                 with open('data/trickortreat_data.json', 'r') as f:
                     data = json.load(f)
-                return jsonify(data)
+                # Filter to only show current year data when live
+                current_year = datetime.now().year
+                current_year_data = [entry for entry in data if entry.get('year') == current_year]
+                return jsonify(current_year_data)
             except FileNotFoundError:
                 return jsonify([])
     except Exception as e:

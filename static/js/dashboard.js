@@ -122,12 +122,15 @@ function setupTimelineChart() {
         data: {
             labels: [],
             datasets: [{
-                label: 'Current Year',
+                label: 'Running Total',
                 data: [],
                 borderColor: '#4ecdc4',
                 backgroundColor: 'rgba(78, 205, 196, 0.1)',
-                tension: 0.4,
-                fill: true
+                tension: 0, // No smoothing for step pattern
+                fill: true,
+                pointRadius: 3,
+                pointHoverRadius: 5,
+                stepped: 'after' // Create step pattern
             }]
         },
         options: {
@@ -144,13 +147,23 @@ function setupTimelineChart() {
                     beginAtZero: true,
                     title: {
                         display: true,
-                        text: 'Trick-or-Treaters'
+                        text: 'Total Trick-or-Treaters'
                     }
                 }
             },
             plugins: {
                 legend: {
                     display: false
+                },
+                tooltip: {
+                    callbacks: {
+                        title: function(context) {
+                            return 'Time: ' + context[0].label;
+                        },
+                        label: function(context) {
+                            return 'Total: ' + context.parsed.y + ' visitors';
+                        }
+                    }
                 }
             }
         }
@@ -389,15 +402,61 @@ function updateYearComparisonChart() {
 function updateTimelineChart() {
     if (!charts.timeline || !currentData) return;
     
-    const labels = currentData.map(entry => {
-        const date = new Date(entry.timestamp);
-        return date.toLocaleTimeString();
-    });
-    const data = currentData.map(entry => entry.count);
+    // Create minute-by-minute data
+    const minuteData = {};
+    let runningTotal = 0;
     
-    charts.timeline.data.labels = labels;
-    charts.timeline.data.datasets[0].data = data;
-    charts.timeline.update();
+    // Process each entry and group by minute
+    currentData.forEach(entry => {
+        // Remove 'Z' suffix and treat as local time
+        const timestamp = entry.timestamp.replace('Z', '');
+        const date = new Date(timestamp);
+        const minuteKey = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+        
+        if (!minuteData[minuteKey]) {
+            minuteData[minuteKey] = 0;
+        }
+        minuteData[minuteKey] += entry.count;
+    });
+    
+    // Get all minutes from first to last entry
+    if (currentData.length > 0) {
+        const firstTimestamp = currentData[0].timestamp.replace('Z', '');
+        const lastTimestamp = currentData[currentData.length - 1].timestamp.replace('Z', '');
+        const firstEntry = new Date(firstTimestamp);
+        const lastEntry = new Date(lastTimestamp);
+        
+        const labels = [];
+        const data = [];
+        
+        // Create minute-by-minute timeline
+        const startMinute = new Date(firstEntry.getFullYear(), firstEntry.getMonth(), firstEntry.getDate(), firstEntry.getHours(), firstEntry.getMinutes());
+        const endMinute = new Date(lastEntry.getFullYear(), lastEntry.getMonth(), lastEntry.getDate(), lastEntry.getHours(), lastEntry.getMinutes());
+        
+        for (let current = new Date(startMinute); current <= endMinute; current.setMinutes(current.getMinutes() + 1)) {
+            // Format time in 12-hour format
+            const timeString = current.toLocaleTimeString('en-US', {
+                hour: 'numeric',
+                minute: '2-digit',
+                hour12: true
+            });
+            
+            // Also create minute key for data lookup
+            const minuteKey = `${current.getHours().toString().padStart(2, '0')}:${current.getMinutes().toString().padStart(2, '0')}`;
+            
+            // Add any new arrivals for this minute
+            if (minuteData[minuteKey]) {
+                runningTotal += minuteData[minuteKey];
+            }
+            
+            labels.push(timeString);
+            data.push(runningTotal);
+        }
+        
+        charts.timeline.data.labels = labels;
+        charts.timeline.data.datasets[0].data = data;
+        charts.timeline.update();
+    }
 }
 
 function updateMinuteChart() {
@@ -416,10 +475,21 @@ function updateMinuteChart() {
         minuteGroups[timeKey] += entry.count;
     });
     
-    const labels = Object.keys(minuteGroups).sort();
-    const data = labels.map(label => minuteGroups[label]);
+    // Sort labels and convert to 12-hour format
+    const sortedLabels = Object.keys(minuteGroups).sort();
+    const formattedLabels = sortedLabels.map(label => {
+        const [hours, minutes] = label.split(':');
+        const date = new Date();
+        date.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+        return date.toLocaleTimeString('en-US', {
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true
+        });
+    });
+    const data = sortedLabels.map(label => minuteGroups[label]);
     
-    charts.minute.data.labels = labels;
+    charts.minute.data.labels = formattedLabels;
     charts.minute.data.datasets[0].data = data;
     charts.minute.update();
 }
@@ -456,7 +526,14 @@ function updateStats() {
     // Last visitor time
     if (currentData.length > 0) {
         const lastEntry = currentData[currentData.length - 1];
-        const lastTime = new Date(lastEntry.timestamp).toLocaleTimeString();
+        // Remove 'Z' suffix and treat as local time
+        const timestamp = lastEntry.timestamp.replace('Z', '');
+        const lastTime = new Date(timestamp).toLocaleTimeString('en-US', {
+            hour: 'numeric',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: true
+        });
         document.getElementById('lastVisitor').textContent = lastTime;
     }
 }
