@@ -371,11 +371,23 @@ function updateYearComparisonChart() {
     });
     
     // Sort time slots
-    timeSlots.push(...Array.from(allTimeSlots).sort());
+    const sortedTimeSlots = Array.from(allTimeSlots).sort();
+    
+    // Format time slots to 12-hour format
+    const formattedTimeSlots = sortedTimeSlots.map(timeSlot => {
+        const [hours, minutes] = timeSlot.split(':');
+        const date = new Date();
+        date.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+        return date.toLocaleTimeString('en-US', {
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true
+        });
+    });
     
     // Create dataset for each year
     Object.entries(historicalData).forEach(([year, yearData]) => {
-        const data = timeSlots.map(timeSlot => {
+        const data = sortedTimeSlots.map(timeSlot => {
             return yearData[timeSlot] ? yearData[timeSlot].average : 0;
         });
         
@@ -390,7 +402,7 @@ function updateYearComparisonChart() {
         });
     });
     
-    charts.yearComparison.data.labels = timeSlots;
+    charts.yearComparison.data.labels = formattedTimeSlots;
     charts.yearComparison.data.datasets = datasets;
     charts.yearComparison.update();
     
