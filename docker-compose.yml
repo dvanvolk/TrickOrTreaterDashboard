@@ -1,0 +1,40 @@
+# docker-compose.yml
+services:
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: trickortreat_dashboard
+    restart: unless-stopped
+    environment:
+      - DASHBOARD_API_KEY=${DASHBOARD_API_KEY}
+      - FLASK_ENV=production
+    volumes:
+      - ./data:/app/data
+      - ./templates:/app/templates
+    ports:
+      - "8000:8000"
+    networks:
+      - dashboard_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared_tunnel
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${TUNNEL_TOKEN}
+    networks:
+      - dashboard_network
+    depends_on:
+      - dashboard
+
+networks:
+  dashboard_network:
+    driver: bridge
