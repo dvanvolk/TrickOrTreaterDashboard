@@ -12,7 +12,7 @@ import json
 import threading
 import time
 from datetime import datetime
-from serial_interface import RadioInterface
+from .serial_interface import RadioInterface
 
 class DashboardSerialIntegration:
     def __init__(self, serial_port="COM7"):

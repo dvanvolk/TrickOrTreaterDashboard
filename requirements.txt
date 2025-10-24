@@ -4,3 +4,4 @@ pandas
 numpy
 pyserial
 schedule
+requests
