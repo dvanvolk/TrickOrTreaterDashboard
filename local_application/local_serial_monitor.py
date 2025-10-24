@@ -128,22 +128,6 @@ class LocalSerialMonitor:
                 logger.info("✓ Last entry undone successfully")
             else:
                 logger.error("✗ Failed to undo on server")
-        
-        elif button_type == 'LIVE_ON':
-            # Enable live mode
-            result = self.api_client.set_live(True)
-            if result:
-                logger.info("✓ Live mode enabled")
-            else:
-                logger.error("✗ Failed to enable live mode")
-        
-        elif button_type == 'LIVE_OFF':
-            # Disable live mode
-            result = self.api_client.set_live(False)
-            if result:
-                logger.info("✓ Live mode disabled")
-            else:
-                logger.error("✗ Failed to disable live mode")
     
     def read_serial(self):
         """Read data from serial port"""
@@ -177,6 +161,13 @@ class LocalSerialMonitor:
         last_health_check = time.time()
         health_check_interval = 60  # Check every 60 seconds
         
+        # Enable live mode
+        result = self.api_client.set_live(True)
+        if result:
+            logger.info("✓ Live mode enabled")
+        else:
+            logger.error("✗ Failed to enable live mode")
+
         try:
             while self.is_running:
                 # Periodic health check
@@ -203,6 +194,13 @@ class LocalSerialMonitor:
             self.is_running = False
             self.disconnect_serial()
             logger.info("Serial monitor stopped")
+
+            # Disable live mode
+            result = self.api_client.set_live(False)
+            if result:
+                logger.info("✓ Live mode disabled")
+            else:
+                logger.error("✗ Failed to disable live mode")
     
     def sync_pending_data(self):
         """Upload any pending local data to server"""
