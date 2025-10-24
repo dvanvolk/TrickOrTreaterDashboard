@@ -1,7 +1,9 @@
 Flask
 Flask-Cors
+flask-limiter
 pandas
 numpy
 pyserial
 schedule
 requests
+gunicorn
