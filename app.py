@@ -45,26 +45,61 @@ live_mode = {
     'owner': None
 }
 
+# Initialize live mode state from file at startup
+@app.before_first_request
+def initialize_live_mode():
+    """Initialize live mode state from file when server starts."""
+    try:
+        state = load_live_mode_from_file()
+        live_mode.clear()
+        live_mode.update(state)
+        logger.info("Initialized live mode from file: enabled=%s, owner=%s",
+                   state.get('enabled'), state.get('owner'))
+    except Exception as e:
+        logger.error("Failed to initialize live mode state: %s", e)
+
 def load_live_mode_from_file():
     """Load live mode dict from the JSON file. Returns a dict with keys 'enabled', 'start_time' (ISO str or None), 'owner'."""
     try:
         if os.path.exists(LIVE_MODE_FILE):
             with open(LIVE_MODE_FILE, 'r') as lf:
                 data = json.load(lf)
-                # Ensure keys exist
-                return {
+                # Ensure keys exist and types are correct
+                state = {
                     'enabled': bool(data.get('enabled', False)),
                     'start_time': data.get('start_time'),
                     'owner': data.get('owner')
                 }
+                # Validate start_time if present
+                if state['start_time']:
+                    try:
+                        datetime.fromisoformat(state['start_time'])
+                    except (ValueError, TypeError):
+                        logger.warning("Invalid start_time in live mode file, resetting")
+                        state['start_time'] = None
+                # If enabled but no start time, add one
+                if state['enabled'] and not state['start_time']:
+                    state['start_time'] = datetime.now().isoformat()
+                    # Re-save to fix the missing start time
+                    save_live_mode_to_file(state)
+                return state
+        else:
+            # Create initial state file if it doesn't exist
+            initial_state = {
+                'enabled': False,
+                'start_time': None,
+                'owner': None
+            }
+            save_live_mode_to_file(initial_state)
+            return initial_state
     except Exception as e:
         logger.exception('Failed to load live mode file: %s', e)
-    # Fallback to in-memory default
-    return {
-        'enabled': live_mode.get('enabled', False),
-        'start_time': live_mode.get('start_time'),
-        'owner': live_mode.get('owner')
-    }
+        # On error, force disabled state for safety
+        return {
+            'enabled': False,
+            'start_time': None,
+            'owner': None
+        }
 
 
 def save_live_mode_to_file(state: dict):
@@ -158,42 +193,72 @@ def set_live():
         desired = bool(body.get('live', False))
         # Owner handling: either provided in JSON 'owner' or in header 'X-Client-Id'
         owner = body.get('owner') or request.headers.get('X-Client-Id')
+        
+        logger.info("Processing set_live request: desired=%s, owner=%s", desired, owner)
 
         # Load authoritative state from file
         current = load_live_mode_from_file()
+        logger.debug("Current state from file: enabled=%s, owner=%s", 
+                    current.get('enabled'), current.get('owner'))
+
+        new_state = current.copy()  # Work with a new copy to avoid modifying current
 
         # If enabling, record owner (if provided)
         if desired and not current.get('enabled'):
-            current['enabled'] = True
-            current['start_time'] = datetime.now().isoformat()
-            current['owner'] = owner
-            logger.info("Live mode ENABLED (owner=%s)", owner)
+            new_state.update({
+                'enabled': True,
+                'start_time': datetime.now().isoformat(),
+                'owner': owner
+            })
+            logger.info("Live mode will be ENABLED (owner=%s)", owner)
         elif not desired and current.get('enabled'):
             # Only allow disabling if owner matches or no owner set
             current_owner = current.get('owner')
             if current_owner and owner and current_owner != owner:
                 logger.warning("Rejecting live disable from owner=%s (current owner=%s)", owner, current_owner)
-                # Important: Return current state unchanged when rejecting
                 return jsonify({
                     'live': current.get('enabled', False),
                     'elapsed_seconds': get_elapsed_seconds(),
                     'error': 'Cannot disable - owned by different client'
                 })
             else:
-                current['enabled'] = False
-                current['start_time'] = None
-                current['owner'] = None
-                logger.info("Live mode DISABLED (requested by=%s)", owner)
+                new_state.update({
+                    'enabled': False,
+                    'start_time': None,
+                    'owner': None
+                })
+                logger.info("Live mode will be DISABLED (requested by=%s)", owner)
+        else:
+            # No change needed
+            logger.debug("No state change needed (desired=%s, current enabled=%s)", 
+                        desired, current.get('enabled'))
+            return jsonify({
+                'live': current.get('enabled', False),
+                'elapsed_seconds': get_elapsed_seconds()
+            })
 
-        # Persist authoritative state to file
-        save_live_mode_to_file(current)
-        # Update in-memory cache by copying values
-        live_mode['enabled'] = current.get('enabled', False)
-        live_mode['start_time'] = current.get('start_time')
-        live_mode['owner'] = current.get('owner')
+        # Persist new state to file first
+        try:
+            save_live_mode_to_file(new_state)
+        except Exception as e:
+            logger.error("Failed to save live mode state: %s", e)
+            return jsonify({
+                'error': 'Failed to save state',
+                'live': current.get('enabled', False),
+                'elapsed_seconds': get_elapsed_seconds()
+            }), 500
+
+        # Only update in-memory cache after successful file save
+        live_mode.clear()
+        live_mode.update(new_state)
+        
+        # Verify the change was saved
+        verify = load_live_mode_from_file()
+        logger.info("Live mode change completed: enabled=%s, owner=%s", 
+                   verify.get('enabled'), verify.get('owner'))
         
         return jsonify({
-            'live': current.get('enabled', False),
+            'live': verify.get('enabled', False),
             'elapsed_seconds': get_elapsed_seconds()
         })
     except Exception as e:
