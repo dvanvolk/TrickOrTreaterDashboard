@@ -34,11 +34,52 @@ limiter = Limiter(
 # Create data directory
 os.makedirs('data', exist_ok=True)
 
-# Global state for live mode
+# File-backed live mode state (shared across worker processes)
+LIVE_MODE_FILE = os.path.join('data', 'live_mode.json')
+
+# In-memory cache (kept for convenience; persistent source of truth is the file)
 live_mode = {
     'enabled': False,
-    'start_time': None
+    'start_time': None,
+    'owner': None
 }
+
+def load_live_mode_from_file():
+    """Load live mode dict from the JSON file. Returns a dict with keys 'enabled', 'start_time' (ISO str or None), 'owner'."""
+    try:
+        if os.path.exists(LIVE_MODE_FILE):
+            with open(LIVE_MODE_FILE, 'r') as lf:
+                data = json.load(lf)
+                # Ensure keys exist
+                return {
+                    'enabled': bool(data.get('enabled', False)),
+                    'start_time': data.get('start_time'),
+                    'owner': data.get('owner')
+                }
+    except Exception as e:
+        logger.exception('Failed to load live mode file: %s', e)
+    # Fallback to in-memory default
+    return {
+        'enabled': live_mode.get('enabled', False),
+        'start_time': live_mode.get('start_time'),
+        'owner': live_mode.get('owner')
+    }
+
+
+def save_live_mode_to_file(state: dict):
+    """Atomically save live mode dict to the JSON file."""
+    try:
+        tmp = LIVE_MODE_FILE + '.tmp'
+        with open(tmp, 'w') as lf:
+            json.dump({
+                'enabled': bool(state.get('enabled', False)),
+                'start_time': state.get('start_time'),
+                'owner': state.get('owner')
+            }, lf)
+        # atomic replace
+        os.replace(tmp, LIVE_MODE_FILE)
+    except Exception as e:
+        logger.exception('Failed to save live mode file: %s', e)
 
 
 def require_api_key(f):
@@ -77,9 +118,14 @@ def save_data(data: List[Dict[str, Any]]):
 
 def get_elapsed_seconds() -> int:
     """Get seconds elapsed since live mode was enabled"""
-    if not live_mode['enabled'] or not live_mode['start_time']:
+    state = load_live_mode_from_file()
+    if not state.get('enabled') or not state.get('start_time'):
         return 0
-    return int((datetime.now() - live_mode['start_time']).total_seconds())
+    try:
+        start = datetime.fromisoformat(state.get('start_time'))
+        return int((datetime.now() - start).total_seconds())
+    except Exception:
+        return 0
 
 
 @app.route('/')
@@ -91,8 +137,9 @@ def index():
 @app.route('/live_status', methods=['GET'])
 def get_live_status():
     """Get current live mode status"""
+    state = load_live_mode_from_file()
     return jsonify({
-        'live': live_mode['enabled'],
+        'live': state.get('enabled', False),
         'elapsed_seconds': get_elapsed_seconds()
     })
 
@@ -108,25 +155,33 @@ def set_live():
         # Owner handling: either provided in JSON 'owner' or in header 'X-Client-Id'
         owner = body.get('owner') or request.headers.get('X-Client-Id')
 
+        # Load authoritative state from file
+        current = load_live_mode_from_file()
+
         # If enabling, record owner (if provided)
-        if desired and not live_mode['enabled']:
-            live_mode['enabled'] = True
-            live_mode['start_time'] = datetime.now()
-            live_mode['owner'] = owner
+        if desired and not current.get('enabled'):
+            current['enabled'] = True
+            current['start_time'] = datetime.now().isoformat()
+            current['owner'] = owner
             logger.info("Live mode ENABLED (owner=%s)", owner)
-        elif not desired and live_mode['enabled']:
+        elif not desired and current.get('enabled'):
             # Only allow disabling if owner matches or no owner set
-            current_owner = live_mode.get('owner')
+            current_owner = current.get('owner')
             if current_owner and owner and current_owner != owner:
                 logger.warning("Rejecting live disable from owner=%s (current owner=%s)", owner, current_owner)
             else:
-                live_mode['enabled'] = False
-                live_mode['start_time'] = None
-                live_mode['owner'] = None
+                current['enabled'] = False
+                current['start_time'] = None
+                current['owner'] = None
                 logger.info("Live mode DISABLED (requested by=%s)", owner)
+
+        # Persist authoritative state to file
+        save_live_mode_to_file(current)
+        # Update in-memory cache as well
+        live_mode.update(current)
         
         return jsonify({
-            'live': live_mode['enabled'],
+            'live': current.get('enabled', False),
             'elapsed_seconds': get_elapsed_seconds()
         })
     except Exception as e:
