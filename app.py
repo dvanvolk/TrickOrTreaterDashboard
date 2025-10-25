@@ -45,10 +45,8 @@ live_mode = {
     'owner': None
 }
 
-# Initialize live mode state from file at startup
-@app.before_first_request
 def initialize_live_mode():
-    """Initialize live mode state from file when server starts."""
+    """Initialize live mode state from file."""
     try:
         state = load_live_mode_from_file()
         live_mode.clear()
@@ -57,6 +55,9 @@ def initialize_live_mode():
                    state.get('enabled'), state.get('owner'))
     except Exception as e:
         logger.error("Failed to initialize live mode state: %s", e)
+
+# Initialize state when module loads - each worker will do this on startup
+initialize_live_mode()
 
 def load_live_mode_from_file():
     """Load live mode dict from the JSON file. Returns a dict with keys 'enabled', 'start_time' (ISO str or None), 'owner'."""
@@ -505,7 +506,14 @@ def health_check():
     })
 
 
+def create_app():
+    """Factory function to create the Flask app instance.
+    This is useful for gunicorn and other WSGI servers."""
+    # Ensure live mode is initialized
+    initialize_live_mode()
+    return app
+
 if __name__ == '__main__':
     # For production, use a production WSGI server like gunicorn
-    # gunicorn -w 4 -b 0.0.0.0:8000 app:app
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    # gunicorn -w 4 -b 0.0.0.0:8000 'app:create_app()'
+    create_app().run(host='0.0.0.0', port=5000, debug=False)
