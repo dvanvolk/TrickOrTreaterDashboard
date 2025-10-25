@@ -9,8 +9,13 @@ import time
 import json
 import os
 from datetime import datetime
-from typing import Optional
-from .api_client import DashboardAPIClient
+from typing import Optional, TYPE_CHECKING
+
+# Defer importing the API client at runtime to avoid requiring network-related
+# dependencies (like `requests`) when this module is imported for help or
+# inspection. Only import for type checking / IDEs.
+if TYPE_CHECKING:
+    from .api_client import DashboardAPIClient
 import logging
 
 logging.basicConfig(
@@ -23,7 +28,7 @@ logger = logging.getLogger(__name__)
 class LocalSerialMonitor:
     """Monitors local serial port and sends data to remote dashboard"""
     
-    def __init__(self, port: str, api_client: DashboardAPIClient, 
+    def __init__(self, port: str, api_client: 'DashboardAPIClient', 
                  baudrate: int = 9600, local_backup: bool = True):
         """
         Initialize serial monitor
@@ -229,6 +234,9 @@ class LocalSerialMonitor:
                         json.dump(all_data, f, indent=2)
         except Exception as e:
             logger.error(f"Failed to sync pending data: {e}")
+    
+    def exit_app(self):
+        self.is_running = False
 
 
 # Example usage

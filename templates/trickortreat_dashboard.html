@@ -91,30 +91,91 @@
     <script src="{{ url_for('static', filename='js/chart-helpers.js') }}"></script>
     <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
     <script>
-        // Connect to backend for live status
-        async function checkLiveStatus() {
-            try {
-                const response = await fetch('/live_status');
-                const data = await response.json();
-                if (data.live !== liveStatus) {
-                    liveStatus = data.live;
-                    updateLiveStatusDisplay();
-                    updateStatsVisibility();
-                }
-                // Update HH:MM live timer from server elapsed seconds
-                const seconds = data.elapsed_seconds || 0;
-                const minutes = Math.floor(seconds / 60);
-                const hours = Math.floor(minutes / 60);
-                const mm = String(minutes % 60).padStart(2, '0');
-                const hh = String(hours).padStart(2, '0');
-                document.getElementById('liveTimer').textContent = `${hh}:${mm}`;
-            } catch (error) {
-                console.error('Error checking live status:', error);
-            }
-        }
+        // Adaptive live-status poller with backoff and Retry-After handling.
+        // Replaces a fixed setInterval so we can back off when the server
+        // returns 429 or when network errors occur.
+        (function() {
+            let pollIntervalMs = 2000; // normal polling interval
+            const MIN_POLL = 2000;
+            const MAX_POLL = 60000;
 
-        // Check live status periodically
-        setInterval(checkLiveStatus, 2000); // Check every 2 seconds
+            async function checkLiveStatus() {
+                try {
+                    const response = await fetch('/live_status');
+
+                    // Handle HTTP 429 (Too Many Requests) specially
+                    if (response.status === 429) {
+                        console.warn('/live_status returned 429 Too Many Requests');
+                        const retryAfter = response.headers.get('Retry-After');
+                        let delay = pollIntervalMs * 2;
+                        if (retryAfter) {
+                            const ra = parseInt(retryAfter, 10);
+                            if (!isNaN(ra)) delay = Math.max(delay, ra * 1000);
+                        }
+                        // cap delay
+                        pollIntervalMs = Math.min(delay, MAX_POLL);
+                        console.info(`Backoff: next live-status check in ${pollIntervalMs}ms`);
+                        // Attempt to consume any non-JSON body safely for logging
+                        try {
+                            const text = await response.text();
+                            console.debug('Live status response (429 body):', text.slice(0, 400));
+                        } catch(e) { /* ignore body read errors */ }
+                        // schedule next check
+                        setTimeout(checkLiveStatus, pollIntervalMs);
+                        return;
+                    }
+
+                    // If server returns non-OK, log and back off
+                    if (!response.ok) {
+                        console.warn(`/live_status returned HTTP ${response.status}`);
+                        pollIntervalMs = Math.min(pollIntervalMs * 2, MAX_POLL);
+                        setTimeout(checkLiveStatus, pollIntervalMs);
+                        return;
+                    }
+
+                    // Ensure response is JSON-like before parsing
+                    const contentType = response.headers.get('content-type') || '';
+                    if (!contentType.includes('application/json')) {
+                        const text = await response.text();
+                        console.warn('Unexpected non-JSON response from /live_status:', text.slice(0, 400));
+                        pollIntervalMs = Math.min(pollIntervalMs * 2, MAX_POLL);
+                        setTimeout(checkLiveStatus, pollIntervalMs);
+                        return;
+                    }
+
+                    const data = await response.json();
+
+                    // Reset polling interval on success
+                    pollIntervalMs = MIN_POLL;
+
+                    if (data.live !== liveStatus) {
+                        liveStatus = data.live;
+                        updateLiveStatusDisplay();
+                        updateStatsVisibility();
+                    }
+
+                    // Update HH:MM live timer from server elapsed seconds
+                    const seconds = data.elapsed_seconds || 0;
+                    const minutes = Math.floor(seconds / 60);
+                    const hours = Math.floor(minutes / 60);
+                    const mm = String(minutes % 60).padStart(2, '0');
+                    const hh = String(hours).padStart(2, '0');
+                    document.getElementById('liveTimer').textContent = `${hh}:${mm}`;
+
+                    // schedule next poll
+                    setTimeout(checkLiveStatus, pollIntervalMs);
+                } catch (error) {
+                    console.error('Error checking live status (network/parse):', error);
+                    // exponential backoff on errors
+                    pollIntervalMs = Math.min(Math.max(pollIntervalMs * 2, MIN_POLL), MAX_POLL);
+                    console.info(`Live-status fetch failed; retrying in ${pollIntervalMs}ms`);
+                    setTimeout(checkLiveStatus, pollIntervalMs);
+                }
+            }
+
+            // Start the adaptive poller
+            checkLiveStatus();
+        })();
     </script>
 </body>
 </html>

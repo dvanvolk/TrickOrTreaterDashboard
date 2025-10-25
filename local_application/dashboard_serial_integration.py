@@ -12,7 +12,18 @@ import json
 import threading
 import time
 from datetime import datetime
-from .serial_interface import RadioInterface
+# Import RadioInterface robustly so this module can be imported either as
+# a package (package-relative imports) or run directly as a script from the
+# `local_application` folder (plain imports). This mirrors patterns used
+# elsewhere in the project to avoid "attempted relative import with no
+# known parent package" errors.
+try:
+    from .serial_interface import RadioInterface
+except Exception:
+    try:
+        from serial_interface import RadioInterface
+    except Exception:
+        RadioInterface = None
 
 class DashboardSerialIntegration:
     def __init__(self, serial_port="COM7"):
@@ -30,8 +41,11 @@ class DashboardSerialIntegration:
         ]
         
         # Start the serial interface
+        if RadioInterface is None:
+            raise RuntimeError("RadioInterface could not be imported; cannot start serial integration")
+
         self.serial_radio.start(self.serial_port, button_callbacks=button_callbacks)
-        print(f"Serial interface started on {serial_port}")
+        print(f"Serial interface started on {self.serial_port}")
         
     def __count_btn_callback(self):
         """Callback when the count button is pressed - add a new trick-or-treater"""

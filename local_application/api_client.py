@@ -3,6 +3,10 @@
 This file re-exports the implementation from `remote_api_client.py` which
 contains the full HTTP client implementation.
 """
-from .remote_api_client import DashboardAPIClient
-
+try:
+    from .remote_api_client import DashboardAPIClient
+except Exception:
+    # Fallback for direct script execution
+    from remote_api_client import DashboardAPIClient
+    
 __all__ = ["DashboardAPIClient"]

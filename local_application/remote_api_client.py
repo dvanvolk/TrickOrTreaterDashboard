@@ -9,6 +9,7 @@ import json
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 import logging
+import time
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -37,26 +38,93 @@ class DashboardAPIClient:
         self.session.headers.update(self.headers)
     
     def _make_request(self, method: str, endpoint: str, **kwargs) -> Optional[Dict[str, Any]]:
-        """Make HTTP request with error handling"""
+        """Make HTTP request with error handling, retries and backoff.
+
+        Retries are applied for transient errors like timeouts, connection
+        failures and server (5xx) responses. 429 (Too Many Requests) is
+        honored by checking the Retry-After header when present.
+        """
         url = f"{self.base_url}{endpoint}"
         kwargs.setdefault('timeout', self.timeout)
-        
-        try:
-            response = self.session.request(method, url, **kwargs)
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.Timeout:
-            logger.error(f"Request timeout for {endpoint}")
-            return None
-        except requests.exceptions.ConnectionError:
-            logger.error(f"Connection error for {endpoint}")
-            return None
-        except requests.exceptions.HTTPError as e:
-            logger.error(f"HTTP error {e.response.status_code} for {endpoint}: {e}")
-            return None
-        except Exception as e:
-            logger.error(f"Unexpected error for {endpoint}: {e}")
-            return None
+
+        max_retries = kwargs.pop('retries', 3)
+        backoff_factor = kwargs.pop('backoff_factor', 0.3)
+
+        attempt = 1
+        while attempt <= max_retries:
+            try:
+                # Avoid logging potentially large bodies; show helpful debug info
+                safe_kwargs = {k: v for k, v in kwargs.items() if k not in ('data', 'json')}
+                logger.debug("HTTP %s %s (attempt %d) %s", method, url, attempt, safe_kwargs)
+
+                response = self.session.request(method, url, **kwargs)
+
+                # Handle 429 Too Many Requests specifically
+                if response.status_code == 429:
+                    retry_after = response.headers.get('Retry-After')
+                    delay = backoff_factor * (2 ** (attempt - 1))
+                    if retry_after:
+                        try:
+                            ra = int(retry_after)
+                            delay = max(delay, ra)
+                        except Exception:
+                            # non-integer Retry-After (HTTP-date) - ignore parse error
+                            pass
+                    logger.warning("Received 429 for %s %s; backing off %.1fs (Retry-After=%s)", method, endpoint, delay, retry_after)
+                    # consume body for debugging if small
+                    try:
+                        body = response.text
+                        logger.debug("429 body: %s", body[:400])
+                    except Exception:
+                        pass
+                    time.sleep(delay)
+                    attempt += 1
+                    continue
+
+                # Retry on 5xx server errors
+                if 500 <= response.status_code < 600:
+                    logger.warning("Server error %d for %s %s", response.status_code, method, endpoint)
+                    if attempt < max_retries:
+                        time.sleep(backoff_factor * (2 ** (attempt - 1)))
+                        attempt += 1
+                        continue
+                    # else fall through and raise
+
+                response.raise_for_status()
+
+                # Parse JSON safely
+                try:
+                    return response.json()
+                except ValueError:
+                    logger.warning("Non-JSON response for %s %s: %s", method, url, (response.text or '')[:400])
+                    return None
+
+            except requests.exceptions.Timeout as e:
+                logger.warning("Timeout on attempt %d for %s %s: %s", attempt, method, endpoint, e)
+                if attempt >= max_retries:
+                    logger.exception("Request timeout (final) for %s %s", method, endpoint)
+                    return None
+                time.sleep(backoff_factor * (2 ** (attempt - 1)))
+                attempt += 1
+                continue
+            except requests.exceptions.ConnectionError as e:
+                logger.warning("Connection error on attempt %d for %s %s: %s", attempt, method, endpoint, e)
+                if attempt >= max_retries:
+                    logger.exception("Connection error (final) for %s %s", method, endpoint)
+                    return None
+                time.sleep(backoff_factor * (2 ** (attempt - 1)))
+                attempt += 1
+                continue
+            except requests.exceptions.HTTPError as e:
+                status = e.response.status_code if e.response is not None else 'unknown'
+                logger.error("HTTP error %s for %s %s: %s", status, method, endpoint, e)
+                return None
+            except Exception as e:
+                logger.exception("Unexpected error for %s %s: %s", method, endpoint, e)
+                return None
+
+        logger.error("Exceeded max retries (%d) for %s %s", max_retries, method, endpoint)
+        return None
     
     def set_live(self, live: bool) -> Optional[Dict[str, Any]]:
         """
@@ -130,11 +198,26 @@ class DashboardAPIClient:
             True if server responds, False otherwise
         """
         try:
+            logger.debug("Health check: contacting %s", f"{self.base_url}/live_status")
             response = self.session.get(f"{self.base_url}/live_status", timeout=5)
+            if response.status_code == 429:
+                logger.warning("Health check: server returned 429 Too Many Requests")
+                return False
+            response.raise_for_status()
+            # Prefer to check JSON if possible, else accept 200 OK
+            content_type = response.headers.get('content-type', '')
+            if 'application/json' in content_type:
+                try:
+                    _ = response.json()
+                    return True
+                except Exception:
+                    logger.warning("Health check returned non-JSON body despite content-type header")
+                    return False
             return response.status_code == 200
-        except:
+        except Exception as e:
+            logger.warning("Health check failed: %s", e)
+            logger.debug("Health check exception", exc_info=True)
             return False
-
 
 # Example usage
 if __name__ == "__main__":
