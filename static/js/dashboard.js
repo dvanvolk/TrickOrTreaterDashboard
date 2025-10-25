@@ -65,6 +65,25 @@ async function loadHistoricalData() {
 async function loadCurrentData() {
     try {
         const response = await fetch('/current_data');
+
+        // Handle rate limiting and non-JSON responses gracefully
+        if (response.status === 429) {
+            console.warn('/current_data returned 429 Too Many Requests');
+            return;
+        }
+
+        if (!response.ok) {
+            console.warn(`/current_data returned HTTP ${response.status}`);
+            return;
+        }
+
+        const contentType = response.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+            const text = await response.text();
+            console.warn('Unexpected non-JSON response from /current_data:', text.slice(0, 400));
+            return;
+        }
+
         currentData = await response.json();
         updateTimelineChart();
         updateMinuteChart();
@@ -182,10 +201,28 @@ function setupDetailedYearChart() {
 async function loadDetailedData() {
     try {
         const resp = await fetch('/detailed_historical');
+
+        if (resp.status === 429) {
+            console.warn('/detailed_historical returned 429 Too Many Requests');
+            return;
+        }
+
+        if (!resp.ok) {
+            console.warn(`/detailed_historical returned HTTP ${resp.status}`);
+            return;
+        }
+
+        const contentType = resp.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+            const text = await resp.text();
+            console.warn('Unexpected non-JSON response from /detailed_historical:', text.slice(0, 400));
+            return;
+        }
+
         detailedHistorical = await resp.json();
-            populateYearSelector();
-            updateDetailedYearChart();
-            updateDetailedScatterChart();
+        populateYearSelector();
+        updateDetailedYearChart();
+        updateDetailedScatterChart();
     } catch (err) {
         console.error('Error loading detailed historical data:', err);
     }

@@ -7,6 +7,7 @@ Receives data from local serial monitor via API
 from flask import Flask, render_template, jsonify, request
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from flask_limiter.errors import RateLimitExceeded
 from functools import wraps
 import json
 import os
@@ -247,6 +248,7 @@ def get_historical_data():
 
 
 @app.route('/detailed_historical')
+@limiter.limit("2000 per hour")
 def get_detailed_historical():
     """Serve detailed per-entry historical data grouped by year.
 
@@ -280,7 +282,15 @@ def get_detailed_historical():
         return jsonify({'error': str(e)}), 500
 
 
+@app.errorhandler(RateLimitExceeded)
+def handle_rate_limit(e):
+    """Return JSON for rate-limited responses instead of HTML so clients can parse errors."""
+    # e.description may contain details depending on limiter setup
+    return jsonify({'error': 'rate_limited', 'message': str(e)}), 429
+
+
 @app.route('/current_data')
+@limiter.limit("2000 per hour")
 def get_current_data():
     """Serve current year's data for live updates"""
     try:

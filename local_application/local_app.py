@@ -102,11 +102,19 @@ def main() -> int:
     api_client = DashboardAPIClient(base_url=api_url, api_key=api_key)
 
     should_stop = False
+    monitor = None
 
     def _signal_handler(sig, frame):
         nonlocal should_stop
         LOGGER.info("Received signal to stop (%s)", sig)
         should_stop = True
+        # If the monitor is running, request it to exit cleanly
+        try:
+            if monitor is not None:
+                LOGGER.info("Requesting monitor to exit")
+                monitor.exit_app()
+        except Exception:
+            LOGGER.debug("Monitor exit request failed", exc_info=True)
 
     signal.signal(signal.SIGINT, _signal_handler)
     signal.signal(signal.SIGTERM, _signal_handler)
@@ -131,7 +139,9 @@ def main() -> int:
             try:
                 while not should_stop:
                     time.sleep(0.5)
-                monitor.exit_app()
+                # If a monitor was created elsewhere, request it to exit.
+                if monitor is not None:
+                    monitor.exit_app()
             finally:
                 integration.cleanup()
 
