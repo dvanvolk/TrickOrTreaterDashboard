@@ -49,11 +49,12 @@ class DashboardSerialIntegration:
         
     def __count_btn_callback(self):
         """Callback when the count button is pressed - add a new trick-or-treater"""
-        timestamp = datetime.now().isoformat() + "Z"
+        now = datetime.now()
+        timestamp = now.isoformat(timespec='microseconds')  # Local time with timezone info
         new_entry = {
             "timestamp": timestamp,
             "count": 1,
-            "year": datetime.now().year
+            "year": now.year
         }
         
         with self.data_lock:

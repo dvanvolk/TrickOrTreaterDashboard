@@ -703,9 +703,8 @@ function updateTimelineChart() {
     
     // Process each entry and group by minute
     currentData.forEach(entry => {
-        // Parse the UTC timestamp and convert to local time
-        const utcDate = new Date(entry.timestamp);
-        const localDate = new Date(utcDate.getTime() - utcDate.getTimezoneOffset() * 60000);
+        // Parse the timestamp (already in local time)
+        const localDate = new Date(entry.timestamp);
         const minuteKey = `${localDate.getHours().toString().padStart(2, '0')}:${localDate.getMinutes().toString().padStart(2, '0')}`;
         
         if (!minuteData[minuteKey]) {
@@ -756,8 +755,7 @@ function updateMinuteChart() {
     // Group data by 10-minute intervals
     const minuteGroups = {};
     currentData.forEach(entry => {
-        const utcDate = new Date(entry.timestamp);
-        const localDate = new Date(utcDate.getTime() - utcDate.getTimezoneOffset() * 60000);
+        const localDate = new Date(entry.timestamp);  // Already in local time
         const minutes = Math.floor(localDate.getMinutes() / 10) * 10;
         const timeKey = `${localDate.getHours().toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
         
@@ -818,9 +816,8 @@ function updateStats() {
     // Last visitor time
     if (currentData.length > 0) {
         const lastEntry = currentData[currentData.length - 1];
-        // Parse UTC timestamp and convert to local time
-        const utcDate = new Date(lastEntry.timestamp);
-        const localDate = new Date(utcDate.getTime() - utcDate.getTimezoneOffset() * 60000);
+        // Parse timestamp (already in local time)
+        const localDate = new Date(lastEntry.timestamp);
         const lastTime = formatTime(localDate, { seconds: true });
         document.getElementById('lastVisitor').textContent = lastTime;
     }
