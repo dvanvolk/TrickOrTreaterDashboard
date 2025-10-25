@@ -140,7 +140,13 @@ class DashboardAPIClient:
         body = {'live': live}
         if owner:
             body['owner'] = owner
-        return self._make_request('POST', '/set_live', json=body)
+        result = self._make_request('POST', '/set_live', json=body)
+        # Log the server's response for debugging
+        if result:
+            logger.info(f"Server response to set_live({live}): live={result.get('live')}, elapsed={result.get('elapsed_seconds')}s")
+        else:
+            logger.warning(f"Failed to set live mode to {live} - server returned no response")
+        return result
     
     def add_trick_or_treater(self) -> Optional[Dict[str, Any]]:
         """

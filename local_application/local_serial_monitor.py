@@ -264,8 +264,22 @@ class LocalSerialMonitor:
                 if time.time() - last_health_check > health_check_interval:
                     if self.api_client.health_check():
                         logger.debug("Server health check: OK")
+                        # Verify live mode status matches what we expect
+                        status = self.api_client.get_live_status()
+                        if status is not None:
+                            server_live = status.get('live', False)
+                            if self._live_was_enabled_by_me and not server_live:
+                                logger.warning("Server shows live mode disabled when we think it's enabled - re-enabling")
+                                result = self.api_client.set_live(True, owner=self.client_id)
+                                if result and result.get('live'):
+                                    logger.info("✓ Live mode re-enabled successfully")
+                                else:
+                                    logger.error("✗ Failed to re-enable live mode")
+                            elif not self._live_was_enabled_by_me and server_live:
+                                # Another client may be running - don't interfere
+                                logger.info("Server shows live mode enabled by another client")
                         # If we couldn't enable live mode at startup, try again now
-                        if not self._live_was_enabled_by_me:
+                        elif not self._live_was_enabled_by_me:
                             logger.info("Attempting to enable live mode (post-startup)")
                             result = self.api_client.set_live(True, owner=self.client_id)
                             if result:
