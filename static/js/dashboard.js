@@ -32,11 +32,11 @@ function updateLiveStatusDisplay() {
     const liveTimeContainer = document.getElementById('liveTimeContainer');
 
     if (liveStatus) {
-        statusElement.textContent = 'Live';
+        statusElement.textContent = 'On';
         statusIndicator.className = 'status-indicator status-live';
         if (liveTimeContainer) liveTimeContainer.style.display = 'inline';
     } else {
-        statusElement.textContent = 'Disabled';
+        statusElement.textContent = 'Off';
         statusIndicator.className = 'status-indicator';
         if (liveTimeContainer) liveTimeContainer.style.display = 'none';
     }
@@ -586,7 +586,17 @@ function updatePeakActivityChart() {
         .sort(([,a], [,b]) => b - a)
         .slice(0, 6);
     
-    const labels = topTimeSlots.map(([timeSlot]) => timeSlot);
+    // Format peak time slots to 12-hour format for labels
+    const labels = topTimeSlots.map(([timeSlot]) => {
+        const [hours, minutes] = timeSlot.split(':');
+        const d = new Date();
+        d.setHours(parseInt(hours, 10), parseInt(minutes, 10), 0, 0);
+        return d.toLocaleTimeString('en-US', {
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true
+        });
+    });
     const data = topTimeSlots.map(([, total]) => total);
     
     charts.peakActivity.data.labels = labels;
