@@ -149,6 +149,7 @@
                     pollIntervalMs = MIN_POLL;
 
                     if (data.live !== liveStatus) {
+                        console.info(`/live_status Debug ${data.live}, ${liveStatus}`);
                         liveStatus = data.live;
                         updateLiveStatusDisplay();
                         updateStatsVisibility();

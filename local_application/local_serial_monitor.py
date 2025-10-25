@@ -163,26 +163,41 @@ class LocalSerialMonitor:
             logger.error("Cannot start - serial connection failed")
             return
         
-        # Check server connectivity
-        if not self.api_client.health_check():
-            logger.warning("⚠ Server is not reachable - will retry periodically")
-        else:
-            logger.info("✓ Server is reachable")
-        
+        # Check server connectivity and attempt to enable live mode.
+        # If the server is rate-limiting (429) or unreachable, don't hammer
+        # the /set_live endpoint — retry with exponential backoff instead.
         self.is_running = True
         logger.info("Starting serial monitor... Press Ctrl+C to stop")
-        
+
         last_health_check = time.time()
         health_check_interval = 60  # Check every 60 seconds
-        
-        # Enable live mode (but record if we successfully enabled it so we
-        # don't turn it off on exit if another client is the owner).
-        result = self.api_client.set_live(True, owner=self.client_id)
-        if result:
-            logger.info("✓ Live mode enabled")
-            self._live_was_enabled_by_me = True
-        else:
-            logger.error("✗ Failed to enable live mode")
+
+        # Try a few times at startup to enable live mode, backing off on failure.
+        max_health_attempts = 5
+        attempt = 0
+        enabled = False
+        while attempt < max_health_attempts and not enabled and self.is_running:
+            if self.api_client.health_check():
+                logger.info("✓ Server is reachable")
+                result = self.api_client.set_live(True, owner=self.client_id)
+                if result:
+                    logger.info("✓ Live mode enabled")
+                    self._live_was_enabled_by_me = True
+                    enabled = True
+                else:
+                    logger.warning("Failed to enable live mode; will retry")
+            else:
+                logger.warning("⚠ Server is not reachable - will retry")
+
+            attempt += 1
+            if not enabled:
+                # exponential backoff: 2,4,8... seconds, capped at 60s
+                sleep_time = min(2 ** attempt, 60)
+                logger.info(f"Retrying live enable in {sleep_time}s (attempt {attempt}/{max_health_attempts})")
+                time.sleep(sleep_time)
+
+        if not enabled:
+            logger.warning("Could not enable live mode at startup; will continue monitoring and attempt later")
 
         try:
             while self.is_running:
@@ -190,6 +205,15 @@ class LocalSerialMonitor:
                 if time.time() - last_health_check > health_check_interval:
                     if self.api_client.health_check():
                         logger.debug("Server health check: OK")
+                        # If we couldn't enable live mode at startup, try again now
+                        if not self._live_was_enabled_by_me:
+                            logger.info("Attempting to enable live mode (post-startup)")
+                            result = self.api_client.set_live(True, owner=self.client_id)
+                            if result:
+                                logger.info("✓ Live mode enabled")
+                                self._live_was_enabled_by_me = True
+                            else:
+                                logger.warning("Post-startup attempt to enable live mode failed")
                     else:
                         logger.warning("Server health check: FAILED")
                     last_health_check = time.time()
