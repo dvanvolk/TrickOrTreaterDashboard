@@ -3,6 +3,7 @@ let liveStatus = false;
 let charts = {};
 let historicalData = {};
 let currentData = [];
+let detailedHistorical = {};
 
 // Chart colors for different years
 const yearColors = {
@@ -15,8 +16,9 @@ const yearColors = {
 // Initialize dashboard on page load
 document.addEventListener('DOMContentLoaded', function() {
     initializeDashboard();
-    loadHistoricalData();
     setupCharts();
+    loadHistoricalData();
+    loadDetailedData();
 });
 
 // Live status management
@@ -79,6 +81,230 @@ function setupCharts() {
     setupYearComparisonChart();
     setupYearStatsChart();
     setupPeakActivityChart();
+    setupDetailedYearChart();
+    setupDetailedScatterChart();
+}
+
+function setupDetailedScatterChart() {
+    const ctx = document.getElementById('detailedScatterChart').getContext('2d');
+    charts.detailedScatter = new Chart(ctx, {
+        type: 'scatter',
+        data: {
+            datasets: [{
+                label: 'Visitor',
+                data: [],
+                backgroundColor: 'rgba(69,183,209,0.9)',
+                pointRadius: 4
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                x: {
+                    type: 'linear',
+                    title: { display: true, text: 'Time of Day' },
+                    ticks: {
+                        callback: function(value, index, ticks) {
+                            // value is minutes since midnight
+                            const hh = Math.floor(value / 60) % 24;
+                            const mm = Math.round(value % 60);
+                            const dt = new Date();
+                            dt.setHours(hh, mm, 0, 0);
+                            return formatTime(dt);
+                        }
+                    }
+                },
+                y: {
+                    display: false,
+                    suggestedMin: -1,
+                    suggestedMax: 3
+                }
+            },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        title: function(context) {
+                            const val = context[0].parsed.x;
+                            const hh = Math.floor(val / 60) % 24;
+                            const mm = Math.floor(val % 60);
+                            const dt = new Date(); dt.setHours(hh, mm, 0, 0);
+                            return formatTime(dt);
+                        },
+                        label: function() { return 'Visitor'; }
+                    }
+                }
+            }
+        }
+    });
+}
+
+function setupDetailedYearChart() {
+    const ctx = document.getElementById('detailedYearChart').getContext('2d');
+    charts.detailedYear = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: [],
+            datasets: [{
+                label: 'Arrivals per Minute',
+                data: [],
+                backgroundColor: '#45b7d1',
+                borderColor: '#2b9fb3',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                x: {
+                    title: { display: true, text: 'Time of Day' }
+                },
+                y: {
+                    beginAtZero: true,
+                    title: { display: true, text: 'Visitors (per minute)' }
+                }
+            },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        title: function(context) { return context[0].label; },
+                        label: function(context) { return 'Arrivals: ' + context.parsed.y; }
+                    }
+                }
+            }
+        }
+    });
+}
+
+async function loadDetailedData() {
+    try {
+        const resp = await fetch('/detailed_historical');
+        detailedHistorical = await resp.json();
+            populateYearSelector();
+            updateDetailedYearChart();
+            updateDetailedScatterChart();
+    } catch (err) {
+        console.error('Error loading detailed historical data:', err);
+    }
+}
+
+    function populateYearSelector() {
+        const selector = document.getElementById('yearSelector');
+        if (!selector) return;
+        // Clear
+        selector.innerHTML = '';
+        const years = Object.keys(detailedHistorical).map(y => parseInt(y, 10)).sort((a,b) => a - b);
+        if (years.length === 0) return;
+        // Add options
+        years.forEach(y => {
+            const opt = document.createElement('option');
+            opt.value = String(y);
+            opt.textContent = String(y);
+            selector.appendChild(opt);
+        });
+        // Default selection: prefer 2024 if present, else latest
+        const preferred = years.includes(2024) ? 2024 : Math.max(...years);
+        selector.value = String(preferred);
+        // When changed, update charts
+        selector.onchange = () => {
+            const year = parseInt(selector.value, 10);
+            updateDetailedYearChart(year);
+            updateDetailedScatterChart(year);
+        };
+    }
+
+function updateDetailedScatterChart(yearParam) {
+    if (!charts.detailedScatter || !detailedHistorical) return;
+
+    const years = Object.keys(detailedHistorical).map(y => parseInt(y, 10));
+    if (years.length === 0) return;
+
+    // Determine which year to show: explicit param > selector > prefer 2024 > most recent
+    let yearToShow;
+    if (typeof yearParam === 'number') yearToShow = yearParam;
+    else {
+        const selector = document.getElementById('yearSelector');
+        if (selector && selector.value) yearToShow = parseInt(selector.value, 10);
+        else yearToShow = years.includes(2024) ? 2024 : Math.max(...years);
+    }
+
+    const entries = detailedHistorical[yearToShow] || [];
+
+    // Create scatter points: x = minutes since midnight (including fractional), y = small jitter
+    const points = [];
+    entries.forEach((e, idx) => {
+        let ts = e.timestamp;
+        if (!ts) return;
+        ts = ts.replace('Z', '');
+        const d = new Date(ts);
+        const minutes = d.getHours() * 60 + d.getMinutes() + (d.getSeconds() / 60);
+        // small deterministic jitter based on index to separate overlapping points
+        const jitter = ((idx % 5) - 2) * 0.18; // values between -0.36..0.36
+        points.push({ x: minutes, y: 1 + jitter });
+    });
+
+    charts.detailedScatter.data.datasets[0].data = points;
+
+    // Optionally adjust x-axis range to fit data
+    if (points.length > 0) {
+        const xs = points.map(p => p.x);
+        const minX = Math.min(...xs) - 5; // pad 5 minutes
+        const maxX = Math.max(...xs) + 5;
+        charts.detailedScatter.options.scales.x.min = Math.max(0, minX);
+        charts.detailedScatter.options.scales.x.max = Math.min(24 * 60, maxX);
+    }
+
+    charts.detailedScatter.update();
+}
+
+function updateDetailedYearChart(yearParam) {
+    if (!charts.detailedYear || !detailedHistorical) return;
+
+    const years = Object.keys(detailedHistorical).map(y => parseInt(y, 10));
+    if (years.length === 0) return;
+
+    let yearToShow;
+    if (typeof yearParam === 'number') yearToShow = yearParam;
+    else {
+        const selector = document.getElementById('yearSelector');
+        if (selector && selector.value) yearToShow = parseInt(selector.value, 10);
+        else yearToShow = years.includes(2024) ? 2024 : Math.max(...years);
+    }
+
+    // Update label in UI
+    const labelEl = document.getElementById('detailedYearLabel');
+    if (labelEl) labelEl.textContent = String(yearToShow);
+
+    const entries = detailedHistorical[yearToShow] || [];
+
+    // Compute counts per minute (HH:MM)
+    const minuteCounts = {};
+    entries.forEach(e => {
+        // Normalize timestamp
+        let ts = e.timestamp;
+        if (!ts) return;
+        ts = ts.replace('Z', '');
+        const d = new Date(ts);
+        const minuteKey = `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
+        minuteCounts[minuteKey] = (minuteCounts[minuteKey] || 0) + (e.count || 1);
+    });
+
+    // Sort minute keys
+    const sortedKeys = Object.keys(minuteCounts).sort();
+    const labels = sortedKeys.map(k => {
+        const [hh, mm] = k.split(':');
+        const dt = new Date();
+        dt.setHours(parseInt(hh,10), parseInt(mm,10), 0, 0);
+        return formatTime(dt);
+    });
+    const data = sortedKeys.map(k => minuteCounts[k]);
+
+    charts.detailedYear.data.labels = labels;
+    charts.detailedYear.data.datasets[0].data = data;
+    charts.detailedYear.update();
 }
 
 function setupMinuteChart() {
@@ -378,11 +604,7 @@ function updateYearComparisonChart() {
         const [hours, minutes] = timeSlot.split(':');
         const date = new Date();
         date.setHours(parseInt(hours), parseInt(minutes), 0, 0);
-        return date.toLocaleTimeString('en-US', {
-            hour: 'numeric',
-            minute: '2-digit',
-            hour12: true
-        });
+        return formatTime(date);
     });
     
     // Create dataset for each year
@@ -447,11 +669,7 @@ function updateTimelineChart() {
         
         for (let current = new Date(startMinute); current <= endMinute; current.setMinutes(current.getMinutes() + 1)) {
             // Format time in 12-hour format
-            const timeString = current.toLocaleTimeString('en-US', {
-                hour: 'numeric',
-                minute: '2-digit',
-                hour12: true
-            });
+            const timeString = formatTime(current);
             
             // Also create minute key for data lookup
             const minuteKey = `${current.getHours().toString().padStart(2, '0')}:${current.getMinutes().toString().padStart(2, '0')}`;
@@ -493,11 +711,7 @@ function updateMinuteChart() {
         const [hours, minutes] = label.split(':');
         const date = new Date();
         date.setHours(parseInt(hours), parseInt(minutes), 0, 0);
-        return date.toLocaleTimeString('en-US', {
-            hour: 'numeric',
-            minute: '2-digit',
-            hour12: true
-        });
+        return formatTime(date);
     });
     const data = sortedLabels.map(label => minuteGroups[label]);
     
@@ -544,12 +758,7 @@ function updateStats() {
         const lastEntry = currentData[currentData.length - 1];
         // Remove 'Z' suffix and treat as local time
         const timestamp = lastEntry.timestamp.replace('Z', '');
-        const lastTime = new Date(timestamp).toLocaleTimeString('en-US', {
-            hour: 'numeric',
-            minute: '2-digit',
-            second: '2-digit',
-            hour12: true
-        });
+        const lastTime = formatTime(new Date(timestamp), { seconds: true });
         document.getElementById('lastVisitor').textContent = lastTime;
     }
 }
@@ -591,11 +800,7 @@ function updatePeakActivityChart() {
         const [hours, minutes] = timeSlot.split(':');
         const d = new Date();
         d.setHours(parseInt(hours, 10), parseInt(minutes, 10), 0, 0);
-        return d.toLocaleTimeString('en-US', {
-            hour: 'numeric',
-            minute: '2-digit',
-            hour12: true
-        });
+        return formatTime(d);
     });
     const data = topTimeSlots.map(([, total]) => total);
     
@@ -608,6 +813,8 @@ function updatePeakActivityChart() {
 setInterval(() => {
     if (liveStatus) {
         loadCurrentData();
+        // Refresh detailed chart periodically while live
+        loadDetailedData();
     }
 }, 2000); // Update every 2 seconds when live
 

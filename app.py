@@ -182,6 +182,40 @@ def get_historical_data():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/detailed_historical')
+def get_detailed_historical():
+    """Serve detailed per-entry historical data grouped by year.
+
+    Returns a mapping of year -> list of entries (timestamp, count, year).
+    This is used by the frontend to render per-arrival charts (minute level).
+    """
+    try:
+        if not os.path.exists(DATA_FILE):
+            return jsonify({})
+
+        with open(DATA_FILE, 'r') as f:
+            data = json.load(f)
+
+        grouped = {}
+        for entry in data:
+            year = entry.get('year')
+            if year not in grouped:
+                grouped[year] = []
+            grouped[year].append(entry)
+
+        # Sort entries per year by timestamp
+        for year, entries in grouped.items():
+            try:
+                entries.sort(key=lambda e: e.get('timestamp'))
+            except Exception:
+                pass
+
+        return jsonify(grouped)
+    except Exception as e:
+        logger.error(f"Error loading detailed historical data: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/current_data')
 def get_current_data():
     """Serve current year's data for live updates"""
