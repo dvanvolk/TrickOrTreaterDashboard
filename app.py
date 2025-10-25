@@ -178,8 +178,10 @@ def set_live():
 
         # Persist authoritative state to file
         save_live_mode_to_file(current)
-        # Update in-memory cache as well
-        live_mode.update(current)
+        # Update in-memory cache by copying values
+        live_mode['enabled'] = current.get('enabled', False)
+        live_mode['start_time'] = current.get('start_time')
+        live_mode['owner'] = current.get('owner')
         
         return jsonify({
             'live': current.get('enabled', False),
@@ -403,11 +405,13 @@ def get_stats():
         recent_count = sum(1 for e in current_year_data 
                           if datetime.fromisoformat(e['timestamp']) > recent_time)
         
+        # Get authoritative live mode state from file
+        current = load_live_mode_from_file()
         return jsonify({
             'total_count': len(current_year_data),
             'recent_count': recent_count,
             'serial_connected': True,  # Always true for remote server
-            'live_mode': live_mode['enabled']
+            'live_mode': current.get('enabled', False)
         })
     except Exception as e:
         logger.error(f"Error getting stats: {e}")
@@ -417,10 +421,11 @@ def get_stats():
 @app.route('/health')
 def health_check():
     """Health check endpoint"""
+    current = load_live_mode_from_file()
     return jsonify({
         'status': 'healthy',
         'timestamp': datetime.now().isoformat(),
-        'live_mode': live_mode['enabled']
+        'live_mode': current.get('enabled', False)
     })
 
 
