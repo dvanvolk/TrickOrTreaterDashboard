@@ -25,5 +25,5 @@ COPY data/ data/
 EXPOSE 8000
 
 # Start Gunicorn
-CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:8000", 'app:create_app()', "--timeout", "120", "--access-logfile", "-", "app:app"]
+CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:8000", "app:create_app()", "--timeout", "120", "--access-logfile", "-"]
  
