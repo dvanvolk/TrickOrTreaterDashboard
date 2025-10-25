@@ -294,9 +294,10 @@ def handle_rate_limit(e):
 def get_current_data():
     """Serve current year's data for live updates"""
     try:
-        if not live_mode['enabled']:
+        state = load_live_mode_from_file()
+        if not state.get('enabled'):
             return jsonify([])
-        
+
         data = load_data()
         current_year = datetime.now().year
         current_year_data = [entry for entry in data if entry.get('year') == current_year]
@@ -407,7 +408,7 @@ def get_stats():
             'total_count': len(current_year_data),
             'recent_count': recent_count,
             'serial_connected': True,  # Always true for remote server
-            'live_mode': live_mode['enabled']
+            'live_mode': load_live_mode_from_file().get('enabled', False)
         })
     except Exception as e:
         logger.error(f"Error getting stats: {e}")
@@ -420,7 +421,7 @@ def health_check():
     return jsonify({
         'status': 'healthy',
         'timestamp': datetime.now().isoformat(),
-        'live_mode': live_mode['enabled']
+        'live_mode': load_live_mode_from_file().get('enabled', False)
     })
 
 
