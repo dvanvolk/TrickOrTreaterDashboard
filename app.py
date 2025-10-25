@@ -79,8 +79,11 @@ def save_live_mode_to_file(state: dict):
             }, lf)
         # atomic replace
         os.replace(tmp, LIVE_MODE_FILE)
+        logger.debug("Saved live mode state to file: enabled=%s, owner=%s",
+                   state.get('enabled'), state.get('owner'))
     except Exception as e:
         logger.exception('Failed to save live mode file: %s', e)
+        raise  # Re-raise to ensure caller knows save failed
 
 
 def require_api_key(f):
@@ -170,6 +173,12 @@ def set_live():
             current_owner = current.get('owner')
             if current_owner and owner and current_owner != owner:
                 logger.warning("Rejecting live disable from owner=%s (current owner=%s)", owner, current_owner)
+                # Important: Return current state unchanged when rejecting
+                return jsonify({
+                    'live': current.get('enabled', False),
+                    'elapsed_seconds': get_elapsed_seconds(),
+                    'error': 'Cannot disable - owned by different client'
+                })
             else:
                 current['enabled'] = False
                 current['start_time'] = None
@@ -296,7 +305,9 @@ def handle_rate_limit(e):
 def get_current_data():
     """Serve current year's data for live updates"""
     try:
-        if not live_mode['enabled']:
+        # Use authoritative file state to check live mode
+        current = load_live_mode_from_file()
+        if not current.get('enabled', False):
             return jsonify([])
         
         data = load_data()
