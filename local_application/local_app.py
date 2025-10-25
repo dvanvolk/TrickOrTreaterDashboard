@@ -131,8 +131,7 @@ def main() -> int:
             try:
                 while not should_stop:
                     time.sleep(0.5)
-                    if should_stop:
-                        monitor.exit_app()
+                monitor.exit_app()
             finally:
                 integration.cleanup()
 

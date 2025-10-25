@@ -46,9 +46,18 @@ class LocalSerialMonitor:
         self.serial_conn: Optional[serial.Serial] = None
         self.is_running = False
         self.local_data_file = 'data/trickortreat_data_backup.json'
-        
+        # Track whether this monitor enabled live mode so we don't
+        # accidentally disable live mode another client enabled.
+        self._live_was_enabled_by_me = False
+
         # Create data directory if it doesn't exist
         os.makedirs('data', exist_ok=True)
+        # Unique client id for ownership of live mode (hostname:pid:timestamp)
+        try:
+            import socket, os as _os
+            self.client_id = f"{socket.gethostname()}:{_os.getpid()}:{int(time.time())}"
+        except Exception:
+            self.client_id = f"local_monitor:{int(time.time())}"
     
     def connect_serial(self) -> bool:
         """Connect to serial port"""
@@ -166,10 +175,12 @@ class LocalSerialMonitor:
         last_health_check = time.time()
         health_check_interval = 60  # Check every 60 seconds
         
-        # Enable live mode
-        result = self.api_client.set_live(True)
+        # Enable live mode (but record if we successfully enabled it so we
+        # don't turn it off on exit if another client is the owner).
+        result = self.api_client.set_live(True, owner=self.client_id)
         if result:
             logger.info("✓ Live mode enabled")
+            self._live_was_enabled_by_me = True
         else:
             logger.error("✗ Failed to enable live mode")
 
@@ -200,12 +211,13 @@ class LocalSerialMonitor:
             self.disconnect_serial()
             logger.info("Serial monitor stopped")
 
-            # Disable live mode
-            result = self.api_client.set_live(False)
-            if result:
-                logger.info("✓ Live mode disabled")
-            else:
-                logger.error("✗ Failed to disable live mode")
+            # Disable live mode only if this monitor enabled it earlier.
+            if self._live_was_enabled_by_me:
+                result = self.api_client.set_live(False, owner=self.client_id)
+                if result:
+                    logger.info("✓ Live mode disabled")
+                else:
+                    logger.error("✗ Failed to disable live mode")
     
     def sync_pending_data(self):
         """Upload any pending local data to server"""

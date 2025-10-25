@@ -105,16 +105,25 @@ def set_live():
     try:
         body = request.get_json(silent=True) or {}
         desired = bool(body.get('live', False))
-        
+        # Owner handling: either provided in JSON 'owner' or in header 'X-Client-Id'
+        owner = body.get('owner') or request.headers.get('X-Client-Id')
+
+        # If enabling, record owner (if provided)
         if desired and not live_mode['enabled']:
-            # Turning live mode ON
             live_mode['enabled'] = True
             live_mode['start_time'] = datetime.now()
-            logger.info("Live mode ENABLED")
+            live_mode['owner'] = owner
+            logger.info("Live mode ENABLED (owner=%s)", owner)
         elif not desired and live_mode['enabled']:
-            # Turning live mode OFF
-            live_mode['enabled'] = False
-            logger.info("Live mode DISABLED")
+            # Only allow disabling if owner matches or no owner set
+            current_owner = live_mode.get('owner')
+            if current_owner and owner and current_owner != owner:
+                logger.warning("Rejecting live disable from owner=%s (current owner=%s)", owner, current_owner)
+            else:
+                live_mode['enabled'] = False
+                live_mode['start_time'] = None
+                live_mode['owner'] = None
+                logger.info("Live mode DISABLED (requested by=%s)", owner)
         
         return jsonify({
             'live': live_mode['enabled'],

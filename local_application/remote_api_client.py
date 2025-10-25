@@ -126,7 +126,7 @@ class DashboardAPIClient:
         logger.error("Exceeded max retries (%d) for %s %s", max_retries, method, endpoint)
         return None
     
-    def set_live(self, live: bool) -> Optional[Dict[str, Any]]:
+    def set_live(self, live: bool, owner: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """
         Enable/disable live mode on dashboard
         
@@ -136,8 +136,11 @@ class DashboardAPIClient:
         Returns:
             Response dict with 'live' and 'elapsed_seconds' keys, or None on error
         """
-        logger.info(f"Setting live mode to: {live}")
-        return self._make_request('POST', '/set_live', json={'live': live})
+        logger.info(f"Setting live mode to: {live} (owner={owner})")
+        body = {'live': live}
+        if owner:
+            body['owner'] = owner
+        return self._make_request('POST', '/set_live', json=body)
     
     def add_trick_or_treater(self) -> Optional[Dict[str, Any]]:
         """
