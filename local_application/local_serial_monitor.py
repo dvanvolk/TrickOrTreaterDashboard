@@ -108,7 +108,13 @@ class LocalSerialMonitor:
     
     def handle_button_press(self, button_type: str):
         """Handle button press from serial input"""
-        if button_type == 'COUNT':
+        # Normalize input
+        b = (button_type or '').strip()
+
+        # Support different serial formats: 'COUNT'/'UNDO' (legacy),
+        # or radio messages like 'Button 1', 'Button: 1', etc.
+        import re
+        if b.upper() == 'COUNT':
             # Add trick-or-treater
             result = self.api_client.add_trick_or_treater()
             
@@ -135,13 +141,66 @@ class LocalSerialMonitor:
                     }
                     self.save_local_backup(data)
         
-        elif button_type == 'UNDO':
+            return
+
+        # Handle 'Button' style messages
+        if b.startswith('Button') or b.startswith('button'):
+            # extract first integer
+            m = re.search(r"\d+", b)
+            if not m:
+                logger.warning(f"Received Button message with no index: '{b}'")
+                return
+            try:
+                idx = int(m.group(0))
+            except Exception:
+                logger.warning(f"Invalid Button index in message: '{b}'")
+                return
+
+            # Map button numbers to actions: 1 -> COUNT, 3 -> UNDO (2 unused)
+            if idx == 1:
+                result = self.api_client.add_trick_or_treater()
+                if result:
+                    logger.info("✓ Trick-or-treater counted successfully (button)")
+                    if self.local_backup:
+                        data = {
+                            'timestamp': datetime.now().isoformat(),
+                            'count': 1,
+                            'year': datetime.now().year
+                        }
+                        self.save_local_backup(data)
+                else:
+                    logger.error("✗ Failed to send count to server (saved locally) (button)")
+                    if self.local_backup:
+                        data = {
+                            'timestamp': datetime.now().isoformat(),
+                            'count': 1,
+                            'year': datetime.now().year,
+                            'pending_upload': True
+                        }
+                        self.save_local_backup(data)
+                return
+            elif idx == 3:
+                result = self.api_client.undo_last_entry()
+                if result:
+                    logger.info("✓ Last entry undone successfully (button)")
+                else:
+                    logger.error("✗ Failed to undo on server (button)")
+                return
+            else:
+                logger.debug(f"Button {idx} pressed - no action configured")
+                return
+
+        elif b.upper() == 'UNDO':
             # Undo last entry
             result = self.api_client.undo_last_entry()
             if result:
                 logger.info("✓ Last entry undone successfully")
             else:
                 logger.error("✗ Failed to undo on server")
+            return
+
+        # If we reach here, the input wasn't recognized
+        logger.debug(f"Unhandled button input: '{button_type}'")
     
     def read_serial(self):
         """Read data from serial port"""

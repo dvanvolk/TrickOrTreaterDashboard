@@ -4,6 +4,8 @@ let charts = {};
 let historicalData = {};
 let currentData = [];
 let detailedHistorical = {};
+// Snapshot to avoid re-updating charts if data hasn't changed
+let _currentDataSnapshot = null;
 
 // Chart colors for different years
 const yearColors = {
@@ -84,7 +86,28 @@ async function loadCurrentData() {
             return;
         }
 
-        currentData = await response.json();
+        const newData = await response.json();
+
+        // Compute a small snapshot (length, sum of counts, last timestamp)
+        const newSnapshot = {
+            len: newData ? newData.length : 0,
+            sum: newData ? newData.reduce((s, e) => s + (e.count || 0), 0) : 0,
+            last: (newData && newData.length > 0) ? newData[newData.length - 1].timestamp : null
+        };
+
+        // If snapshot unchanged, skip updating charts to avoid visual refresh flicker
+        if (_currentDataSnapshot &&
+            _currentDataSnapshot.len === newSnapshot.len &&
+            _currentDataSnapshot.sum === newSnapshot.sum &&
+            _currentDataSnapshot.last === newSnapshot.last) {
+            // no change
+            return;
+        }
+
+        // Update stored data and snapshot
+        currentData = newData;
+        _currentDataSnapshot = newSnapshot;
+
         updateTimelineChart();
         updateMinuteChart();
         updateStats();
