@@ -265,10 +265,11 @@ async function loadDetailedData() {
             opt.textContent = String(y);
             selector.appendChild(opt);
         });
-        // Default selection: prefer 2024 if present, else latest
-        const preferred = years.includes(2024) ? 2024 : Math.max(...years);
+        // Default selection: use current selection if it exists in the data, else use latest year
+        const currentYear = selector.value ? parseInt(selector.value, 10) : null;
+        const preferred = (currentYear && years.includes(currentYear)) ? currentYear : Math.max(...years);
         selector.value = String(preferred);
-        // When changed, update charts
+        // When changed, update charts and store the selection
         selector.onchange = () => {
             const year = parseInt(selector.value, 10);
             updateDetailedYearChart(year);
@@ -298,9 +299,9 @@ function updateDetailedScatterChart(yearParam) {
     entries.forEach((e, idx) => {
         let ts = e.timestamp;
         if (!ts) return;
-        ts = ts.replace('Z', '');
-        const d = new Date(ts);
-        const minutes = d.getHours() * 60 + d.getMinutes() + (d.getSeconds() / 60);
+        const utcDate = new Date(ts);
+        const localDate = new Date(utcDate.getTime() - utcDate.getTimezoneOffset() * 60000);
+        const minutes = localDate.getHours() * 60 + localDate.getMinutes() + (localDate.getSeconds() / 60);
         // small deterministic jitter based on index to separate overlapping points
         const jitter = ((idx % 5) - 2) * 0.18; // values between -0.36..0.36
         points.push({ x: minutes, y: 1 + jitter });
@@ -702,10 +703,10 @@ function updateTimelineChart() {
     
     // Process each entry and group by minute
     currentData.forEach(entry => {
-        // Remove 'Z' suffix and treat as local time
-        const timestamp = entry.timestamp.replace('Z', '');
-        const date = new Date(timestamp);
-        const minuteKey = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+        // Parse the UTC timestamp and convert to local time
+        const utcDate = new Date(entry.timestamp);
+        const localDate = new Date(utcDate.getTime() - utcDate.getTimezoneOffset() * 60000);
+        const minuteKey = `${localDate.getHours().toString().padStart(2, '0')}:${localDate.getMinutes().toString().padStart(2, '0')}`;
         
         if (!minuteData[minuteKey]) {
             minuteData[minuteKey] = 0;
@@ -755,9 +756,10 @@ function updateMinuteChart() {
     // Group data by 10-minute intervals
     const minuteGroups = {};
     currentData.forEach(entry => {
-        const date = new Date(entry.timestamp);
-        const minutes = Math.floor(date.getMinutes() / 10) * 10;
-        const timeKey = `${date.getHours().toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+        const utcDate = new Date(entry.timestamp);
+        const localDate = new Date(utcDate.getTime() - utcDate.getTimezoneOffset() * 60000);
+        const minutes = Math.floor(localDate.getMinutes() / 10) * 10;
+        const timeKey = `${localDate.getHours().toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
         
         if (!minuteGroups[timeKey]) {
             minuteGroups[timeKey] = 0;
@@ -816,9 +818,10 @@ function updateStats() {
     // Last visitor time
     if (currentData.length > 0) {
         const lastEntry = currentData[currentData.length - 1];
-        // Remove 'Z' suffix and treat as local time
-        const timestamp = lastEntry.timestamp.replace('Z', '');
-        const lastTime = formatTime(new Date(timestamp), { seconds: true });
+        // Parse UTC timestamp and convert to local time
+        const utcDate = new Date(lastEntry.timestamp);
+        const localDate = new Date(utcDate.getTime() - utcDate.getTimezoneOffset() * 60000);
+        const lastTime = formatTime(localDate, { seconds: true });
         document.getElementById('lastVisitor').textContent = lastTime;
     }
 }
