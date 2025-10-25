@@ -79,6 +79,7 @@ def save_live_mode_to_file(state: dict):
             }, lf)
         # atomic replace
         os.replace(tmp, LIVE_MODE_FILE)
+        logger.debug('Saved live mode to file: %s', state)
     except Exception as e:
         logger.exception('Failed to save live mode file: %s', e)
 
@@ -169,7 +170,7 @@ def set_live():
             # Only allow disabling if owner matches or no owner set
             current_owner = current.get('owner')
             if current_owner and owner and current_owner != owner:
-                logger.warning("Rejecting live disable from owner=%s (current owner=%s)", owner, current_owner)
+                logger.warning("Rejecting live disable - requester owner=%s does not match current owner=%s", owner, current_owner)
             else:
                 current['enabled'] = False
                 current['start_time'] = None
@@ -188,6 +189,18 @@ def set_live():
     except Exception as e:
         logger.error(f"Error setting live mode: {e}")
         return jsonify({'error': str(e)}), 400
+
+
+@app.route('/live_state', methods=['GET'])
+@require_api_key
+def live_state():
+    """Debug endpoint: return the raw persisted live state (for troubleshooting)."""
+    try:
+        state = load_live_mode_from_file()
+        return jsonify({'state': state})
+    except Exception as e:
+        logger.exception('Error reading live state: %s', e)
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/historical_data')
