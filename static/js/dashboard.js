@@ -114,16 +114,44 @@ async function loadCurrentData() {
     }
 }
 
-function saveSummaryData() {
-    if (!currentData || currentData.length === 0) {
+async function saveSummaryData() {
+    // If we already have current data loaded, use it
+    // Otherwise, fetch it one last time before live mode fully disables
+    let dataToSave = currentData;
+    
+    if (!dataToSave || dataToSave.length === 0) {
+        // Try to fetch the data one last time by calling the stats endpoint
+        // which works even when live mode is off
+        try {
+            const response = await fetch('/stats');
+            if (response.ok) {
+                const stats = await response.json();
+                if (stats.total_count > 0) {
+                    // We have data, but we need the actual entries
+                    // Load from detailed_historical for the current year
+                    const detailResponse = await fetch('/detailed_historical');
+                    if (detailResponse.ok) {
+                        const allData = await detailResponse.json();
+                        const currentYear = new Date().getFullYear();
+                        dataToSave = allData[currentYear] || [];
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Error fetching data for summary:', error);
+        }
+    }
+    
+    if (!dataToSave || dataToSave.length === 0) {
         savedSummary = null;
+        console.log('No data available to save summary');
         return;
     }
     
-    const totalToday = currentData.reduce((sum, entry) => sum + entry.count, 0);
+    const totalToday = dataToSave.reduce((sum, entry) => sum + entry.count, 0);
     
     const minuteGroups = {};
-    currentData.forEach(entry => {
+    dataToSave.forEach(entry => {
         const localDate = new Date(entry.timestamp);
         const minutes = Math.floor(localDate.getMinutes() / 10) * 10;
         const timeKey = `${localDate.getHours().toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
@@ -135,7 +163,7 @@ function saveSummaryData() {
     });
     
     const minuteData = {};
-    currentData.forEach(entry => {
+    dataToSave.forEach(entry => {
         const localDate = new Date(entry.timestamp);
         const minuteKey = `${localDate.getHours().toString().padStart(2, '0')}:${localDate.getMinutes().toString().padStart(2, '0')}`;
         
@@ -149,11 +177,12 @@ function saveSummaryData() {
         total: totalToday,
         minuteGroups: minuteGroups,
         minuteData: minuteData,
-        firstTimestamp: currentData[0].timestamp,
-        lastTimestamp: currentData[currentData.length - 1].timestamp,
-        year: new Date(currentData[0].timestamp).getFullYear()
+        firstTimestamp: dataToSave[0].timestamp,
+        lastTimestamp: dataToSave[dataToSave.length - 1].timestamp,
+        year: new Date(dataToSave[0].timestamp).getFullYear()
     };
     
+    console.log('Summary saved:', savedSummary);
     displaySummary();
 }
 
@@ -383,19 +412,16 @@ async function loadDetailedData() {
     }
 }
 
- function populateYearSelector() {
+function populateYearSelector() {
     const selector = document.getElementById('yearSelector');
     if (!selector) return;
     
-    // Preserve current selection before rebuilding options
     const currentSelection = selector.value;
     
-    // Clear
     selector.innerHTML = '';
     const years = Object.keys(detailedHistorical).map(y => parseInt(y, 10)).sort((a,b) => a - b);
     if (years.length === 0) return;
     
-    // Add options
     years.forEach(y => {
         const opt = document.createElement('option');
         opt.value = String(y);
@@ -403,14 +429,12 @@ async function loadDetailedData() {
         selector.appendChild(opt);
     });
     
-    // Restore previous selection if it still exists, otherwise use latest year
     if (currentSelection && years.includes(parseInt(currentSelection, 10))) {
         selector.value = currentSelection;
     } else {
         selector.value = String(Math.max(...years));
     }
     
-    // When changed, update charts and store the selection
     selector.onchange = () => {
         const year = parseInt(selector.value, 10);
         updateDetailedYearChart(year);
