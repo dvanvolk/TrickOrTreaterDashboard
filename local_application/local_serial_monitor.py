@@ -8,7 +8,7 @@ import serial
 import time
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, TYPE_CHECKING
 
 # Defer importing the API client at runtime to avoid requiring network-related
@@ -124,7 +124,7 @@ class LocalSerialMonitor:
                 # Save local backup
                 if self.local_backup:
                     data = {
-                        'timestamp': datetime.now().isoformat(),
+                        'timestamp': datetime.now(timezone.utc).isoformat(),
                         'count': 1,
                         'year': datetime.now().year
                     }

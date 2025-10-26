@@ -11,7 +11,7 @@ from flask_limiter.errors import RateLimitExceeded
 from functools import wraps
 import json
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any
 import logging
 
@@ -394,7 +394,7 @@ def add_trick_or_treater():
         data = load_data()
         
         new_entry = {
-            'timestamp': datetime.now().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
             'count': 1,
             'year': datetime.now().year
         }

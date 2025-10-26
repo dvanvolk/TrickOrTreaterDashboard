@@ -876,7 +876,7 @@ setInterval(() => {
         // Refresh detailed chart periodically while live
         loadDetailedData();
     }
-}, 2000); // Update every 2 seconds when live
+}, 10000); // Update every 10 seconds when live
 
 // Manual controls removed from UI
 
