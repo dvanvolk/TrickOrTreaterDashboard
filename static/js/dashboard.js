@@ -6,6 +6,8 @@ let currentData = [];
 let detailedHistorical = {};
 // Snapshot to avoid re-updating charts if data hasn't changed
 let _currentDataSnapshot = null;
+// Summary data saved when live mode is disabled
+let savedSummary = null;
 
 // Chart colors for different years
 const yearColors = {
@@ -34,15 +36,18 @@ function updateLiveStatusDisplay() {
     const statusElement = document.getElementById('liveStatus');
     const statusIndicator = document.getElementById('statusIndicator');
     const liveTimeContainer = document.getElementById('liveTimeContainer');
+    const summaryContainer = document.getElementById('summaryContainer');
 
     if (liveStatus) {
         statusElement.textContent = 'On';
         statusIndicator.className = 'status-indicator status-live';
         if (liveTimeContainer) liveTimeContainer.style.display = 'inline';
+        if (summaryContainer) summaryContainer.style.display = 'none';
     } else {
         statusElement.textContent = 'Off';
         statusIndicator.className = 'status-indicator';
         if (liveTimeContainer) liveTimeContainer.style.display = 'none';
+        if (summaryContainer) summaryContainer.style.display = 'block';
     }
 }
 
@@ -50,8 +55,6 @@ function updateStatsVisibility() {
     const statsGrid = document.getElementById('statsGrid');
     statsGrid.style.display = liveStatus ? 'grid' : 'none';
 }
-
-// Live timer display is driven by server-reported elapsed time in inline script
 
 // Data loading
 async function loadHistoricalData() {
@@ -68,7 +71,6 @@ async function loadCurrentData() {
     try {
         const response = await fetch('/current_data');
 
-        // Handle rate limiting and non-JSON responses gracefully
         if (response.status === 429) {
             console.warn('/current_data returned 429 Too Many Requests');
             return;
@@ -88,23 +90,19 @@ async function loadCurrentData() {
 
         const newData = await response.json();
 
-        // Compute a small snapshot (length, sum of counts, last timestamp)
         const newSnapshot = {
             len: newData ? newData.length : 0,
             sum: newData ? newData.reduce((s, e) => s + (e.count || 0), 0) : 0,
             last: (newData && newData.length > 0) ? newData[newData.length - 1].timestamp : null
         };
 
-        // If snapshot unchanged, skip updating charts to avoid visual refresh flicker
         if (_currentDataSnapshot &&
             _currentDataSnapshot.len === newSnapshot.len &&
             _currentDataSnapshot.sum === newSnapshot.sum &&
             _currentDataSnapshot.last === newSnapshot.last) {
-            // no change
             return;
         }
 
-        // Update stored data and snapshot
         currentData = newData;
         _currentDataSnapshot = newSnapshot;
 
@@ -114,6 +112,141 @@ async function loadCurrentData() {
     } catch (error) {
         console.error('Error loading current data:', error);
     }
+}
+
+function saveSummaryData() {
+    if (!currentData || currentData.length === 0) {
+        savedSummary = null;
+        return;
+    }
+    
+    const totalToday = currentData.reduce((sum, entry) => sum + entry.count, 0);
+    
+    const minuteGroups = {};
+    currentData.forEach(entry => {
+        const localDate = new Date(entry.timestamp);
+        const minutes = Math.floor(localDate.getMinutes() / 10) * 10;
+        const timeKey = `${localDate.getHours().toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+        
+        if (!minuteGroups[timeKey]) {
+            minuteGroups[timeKey] = 0;
+        }
+        minuteGroups[timeKey] += entry.count;
+    });
+    
+    const minuteData = {};
+    currentData.forEach(entry => {
+        const localDate = new Date(entry.timestamp);
+        const minuteKey = `${localDate.getHours().toString().padStart(2, '0')}:${localDate.getMinutes().toString().padStart(2, '0')}`;
+        
+        if (!minuteData[minuteKey]) {
+            minuteData[minuteKey] = 0;
+        }
+        minuteData[minuteKey] += entry.count;
+    });
+    
+    savedSummary = {
+        total: totalToday,
+        minuteGroups: minuteGroups,
+        minuteData: minuteData,
+        firstTimestamp: currentData[0].timestamp,
+        lastTimestamp: currentData[currentData.length - 1].timestamp,
+        year: new Date(currentData[0].timestamp).getFullYear()
+    };
+    
+    displaySummary();
+}
+
+function displaySummary() {
+    if (!savedSummary) {
+        const summaryContainer = document.getElementById('summaryContainer');
+        if (summaryContainer) {
+            summaryContainer.innerHTML = '<p style="color: #ff6b35; font-size: 1.2em;">No data from previous session</p>';
+        }
+        return;
+    }
+    
+    const summaryContainer = document.getElementById('summaryContainer');
+    if (summaryContainer) {
+        summaryContainer.innerHTML = `
+            <h3 style="color: #ff6b35; margin-bottom: 10px;">📊 Session Summary (${savedSummary.year})</h3>
+            <p style="font-size: 1.3em; margin-bottom: 10px;">
+                <strong>Total Trick-or-Treaters:</strong> <span style="color: #4ecdc4; font-size: 1.4em;">${savedSummary.total}</span>
+            </p>
+            <p style="font-size: 0.9em; opacity: 0.8;">
+                Session ran from ${formatTime(new Date(savedSummary.firstTimestamp))} to ${formatTime(new Date(savedSummary.lastTimestamp))}
+            </p>
+        `;
+    }
+    
+    displaySummaryCharts();
+}
+
+function displaySummaryCharts() {
+    if (!savedSummary) return;
+    
+    const sortedLabels = Object.keys(savedSummary.minuteGroups).sort();
+    const formattedLabels = sortedLabels.map(label => {
+        const [hours, minutes] = label.split(':');
+        const date = new Date();
+        date.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+        return formatTime(date);
+    });
+    const minuteData = sortedLabels.map(label => savedSummary.minuteGroups[label]);
+    
+    charts.minute.data.labels = formattedLabels;
+    charts.minute.data.datasets[0].data = minuteData;
+    charts.minute.update();
+    
+    const firstEntry = new Date(savedSummary.firstTimestamp);
+    const lastEntry = new Date(savedSummary.lastTimestamp);
+    
+    const labels = [];
+    const data = [];
+    let runningTotal = 0;
+    
+    const startMinute = new Date(firstEntry.getFullYear(), firstEntry.getMonth(), firstEntry.getDate(), firstEntry.getHours(), firstEntry.getMinutes());
+    const endMinute = new Date(lastEntry.getFullYear(), lastEntry.getMonth(), lastEntry.getDate(), lastEntry.getHours(), lastEntry.getMinutes());
+    
+    for (let current = new Date(startMinute); current <= endMinute; current.setMinutes(current.getMinutes() + 1)) {
+        const timeString = formatTime(current);
+        const minuteKey = `${current.getHours().toString().padStart(2, '0')}:${current.getMinutes().toString().padStart(2, '0')}`;
+        
+        if (savedSummary.minuteData[minuteKey]) {
+            runningTotal += savedSummary.minuteData[minuteKey];
+        }
+        
+        labels.push(timeString);
+        data.push(runningTotal);
+    }
+    
+    charts.timeline.data.labels = labels;
+    charts.timeline.data.datasets[0].data = data;
+    charts.timeline.update();
+}
+
+function clearSummaryData() {
+    savedSummary = null;
+    currentData = [];
+    _currentDataSnapshot = null;
+    
+    if (charts.minute) {
+        charts.minute.data.labels = [];
+        charts.minute.data.datasets[0].data = [];
+        charts.minute.update();
+    }
+    
+    if (charts.timeline) {
+        charts.timeline.data.labels = [];
+        charts.timeline.data.datasets[0].data = [];
+        charts.timeline.update();
+    }
+    
+    document.getElementById('totalToday').textContent = '0';
+    document.getElementById('currentMinute').textContent = '0';
+    document.getElementById('peakMinute').textContent = '--';
+    document.getElementById('avgPerMinute').textContent = '0.0';
+    document.getElementById('lastVisitor').textContent = '--';
 }
 
 // Chart setup
@@ -148,7 +281,6 @@ function setupDetailedScatterChart() {
                     title: { display: true, text: 'Time of Day' },
                     ticks: {
                         callback: function(value, index, ticks) {
-                            // value is minutes since midnight
                             const hh = Math.floor(value / 60) % 24;
                             const mm = Math.round(value % 60);
                             const dt = new Date();
@@ -251,31 +383,40 @@ async function loadDetailedData() {
     }
 }
 
-    function populateYearSelector() {
-        const selector = document.getElementById('yearSelector');
-        if (!selector) return;
-        // Clear
-        selector.innerHTML = '';
-        const years = Object.keys(detailedHistorical).map(y => parseInt(y, 10)).sort((a,b) => a - b);
-        if (years.length === 0) return;
-        // Add options
-        years.forEach(y => {
-            const opt = document.createElement('option');
-            opt.value = String(y);
-            opt.textContent = String(y);
-            selector.appendChild(opt);
-        });
-        // Default selection: use current selection if it exists in the data, else use latest year
-        const currentYear = selector.value ? parseInt(selector.value, 10) : null;
-        const preferred = (currentYear && years.includes(currentYear)) ? currentYear : Math.max(...years);
-        selector.value = String(preferred);
-        // When changed, update charts and store the selection
-        selector.onchange = () => {
-            const year = parseInt(selector.value, 10);
-            updateDetailedYearChart(year);
-            updateDetailedScatterChart(year);
-        };
+ function populateYearSelector() {
+    const selector = document.getElementById('yearSelector');
+    if (!selector) return;
+    
+    // Preserve current selection before rebuilding options
+    const currentSelection = selector.value;
+    
+    // Clear
+    selector.innerHTML = '';
+    const years = Object.keys(detailedHistorical).map(y => parseInt(y, 10)).sort((a,b) => a - b);
+    if (years.length === 0) return;
+    
+    // Add options
+    years.forEach(y => {
+        const opt = document.createElement('option');
+        opt.value = String(y);
+        opt.textContent = String(y);
+        selector.appendChild(opt);
+    });
+    
+    // Restore previous selection if it still exists, otherwise use latest year
+    if (currentSelection && years.includes(parseInt(currentSelection, 10))) {
+        selector.value = currentSelection;
+    } else {
+        selector.value = String(Math.max(...years));
     }
+    
+    // When changed, update charts and store the selection
+    selector.onchange = () => {
+        const year = parseInt(selector.value, 10);
+        updateDetailedYearChart(year);
+        updateDetailedScatterChart(year);
+    };
+}
 
 function updateDetailedScatterChart(yearParam) {
     if (!charts.detailedScatter || !detailedHistorical) return;
@@ -283,7 +424,6 @@ function updateDetailedScatterChart(yearParam) {
     const years = Object.keys(detailedHistorical).map(y => parseInt(y, 10));
     if (years.length === 0) return;
 
-    // Determine which year to show: explicit param > selector > prefer 2024 > most recent
     let yearToShow;
     if (typeof yearParam === 'number') yearToShow = yearParam;
     else {
@@ -294,7 +434,6 @@ function updateDetailedScatterChart(yearParam) {
 
     const entries = detailedHistorical[yearToShow] || [];
 
-    // Create scatter points: x = minutes since midnight (including fractional), y = small jitter
     const points = [];
     entries.forEach((e, idx) => {
         let ts = e.timestamp;
@@ -302,17 +441,15 @@ function updateDetailedScatterChart(yearParam) {
         const utcDate = new Date(ts);
         const localDate = new Date(utcDate.getTime() - utcDate.getTimezoneOffset() * 60000);
         const minutes = localDate.getHours() * 60 + localDate.getMinutes() + (localDate.getSeconds() / 60);
-        // small deterministic jitter based on index to separate overlapping points
-        const jitter = ((idx % 5) - 2) * 0.18; // values between -0.36..0.36
+        const jitter = ((idx % 5) - 2) * 0.18;
         points.push({ x: minutes, y: 1 + jitter });
     });
 
     charts.detailedScatter.data.datasets[0].data = points;
 
-    // Optionally adjust x-axis range to fit data
     if (points.length > 0) {
         const xs = points.map(p => p.x);
-        const minX = Math.min(...xs) - 5; // pad 5 minutes
+        const minX = Math.min(...xs) - 5;
         const maxX = Math.max(...xs) + 5;
         charts.detailedScatter.options.scales.x.min = Math.max(0, minX);
         charts.detailedScatter.options.scales.x.max = Math.min(24 * 60, maxX);
@@ -335,16 +472,13 @@ function updateDetailedYearChart(yearParam) {
         else yearToShow = years.includes(2024) ? 2024 : Math.max(...years);
     }
 
-    // Update label in UI
     const labelEl = document.getElementById('detailedYearLabel');
     if (labelEl) labelEl.textContent = String(yearToShow);
 
     const entries = detailedHistorical[yearToShow] || [];
 
-    // Compute counts per minute (HH:MM)
     const minuteCounts = {};
     entries.forEach(e => {
-        // Normalize timestamp
         let ts = e.timestamp;
         if (!ts) return;
         ts = ts.replace('Z', '');
@@ -353,7 +487,6 @@ function updateDetailedYearChart(yearParam) {
         minuteCounts[minuteKey] = (minuteCounts[minuteKey] || 0) + (e.count || 1);
     });
 
-    // Sort minute keys
     const sortedKeys = Object.keys(minuteCounts).sort();
     const labels = sortedKeys.map(k => {
         const [hh, mm] = k.split(':');
@@ -413,11 +546,11 @@ function setupTimelineChart() {
                 data: [],
                 borderColor: '#4ecdc4',
                 backgroundColor: 'rgba(78, 205, 196, 0.1)',
-                tension: 0, // No smoothing for step pattern
+                tension: 0,
                 fill: true,
                 pointRadius: 3,
                 pointHoverRadius: 5,
-                stepped: 'after' // Create step pattern
+                stepped: 'after'
             }]
         },
         options: {
@@ -651,16 +784,13 @@ function updateYearComparisonChart() {
     const timeSlots = [];
     const datasets = [];
     
-    // Get all unique time slots
     const allTimeSlots = new Set();
     Object.values(historicalData).forEach(yearData => {
         Object.keys(yearData).forEach(timeSlot => allTimeSlots.add(timeSlot));
     });
     
-    // Sort time slots
     const sortedTimeSlots = Array.from(allTimeSlots).sort();
     
-    // Format time slots to 12-hour format
     const formattedTimeSlots = sortedTimeSlots.map(timeSlot => {
         const [hours, minutes] = timeSlot.split(':');
         const date = new Date();
@@ -668,7 +798,6 @@ function updateYearComparisonChart() {
         return formatTime(date);
     });
     
-    // Create dataset for each year
     Object.entries(historicalData).forEach(([year, yearData]) => {
         const data = sortedTimeSlots.map(timeSlot => {
             return yearData[timeSlot] ? yearData[timeSlot].average : 0;
@@ -689,7 +818,6 @@ function updateYearComparisonChart() {
     charts.yearComparison.data.datasets = datasets;
     charts.yearComparison.update();
     
-    // Update additional charts
     updateYearStatsChart();
     updatePeakActivityChart();
 }
@@ -697,13 +825,10 @@ function updateYearComparisonChart() {
 function updateTimelineChart() {
     if (!charts.timeline || !currentData) return;
     
-    // Create minute-by-minute data
     const minuteData = {};
     let runningTotal = 0;
     
-    // Process each entry and group by minute
     currentData.forEach(entry => {
-        // Parse the timestamp (already in local time)
         const localDate = new Date(entry.timestamp);
         const minuteKey = `${localDate.getHours().toString().padStart(2, '0')}:${localDate.getMinutes().toString().padStart(2, '0')}`;
         
@@ -713,7 +838,6 @@ function updateTimelineChart() {
         minuteData[minuteKey] += entry.count;
     });
     
-    // Get all minutes from first to last entry
     if (currentData.length > 0) {
         const firstTimestamp = currentData[0].timestamp.replace('Z', '');
         const lastTimestamp = currentData[currentData.length - 1].timestamp.replace('Z', '');
@@ -723,18 +847,14 @@ function updateTimelineChart() {
         const labels = [];
         const data = [];
         
-        // Create minute-by-minute timeline
         const startMinute = new Date(firstEntry.getFullYear(), firstEntry.getMonth(), firstEntry.getDate(), firstEntry.getHours(), firstEntry.getMinutes());
         const endMinute = new Date(lastEntry.getFullYear(), lastEntry.getMonth(), lastEntry.getDate(), lastEntry.getHours(), lastEntry.getMinutes());
         
         for (let current = new Date(startMinute); current <= endMinute; current.setMinutes(current.getMinutes() + 1)) {
-            // Format time in 12-hour format
             const timeString = formatTime(current);
             
-            // Also create minute key for data lookup
             const minuteKey = `${current.getHours().toString().padStart(2, '0')}:${current.getMinutes().toString().padStart(2, '0')}`;
             
-            // Add any new arrivals for this minute
             if (minuteData[minuteKey]) {
                 runningTotal += minuteData[minuteKey];
             }
@@ -752,10 +872,9 @@ function updateTimelineChart() {
 function updateMinuteChart() {
     if (!charts.minute || !currentData) return;
     
-    // Group data by 10-minute intervals
     const minuteGroups = {};
     currentData.forEach(entry => {
-        const localDate = new Date(entry.timestamp);  // Already in local time
+        const localDate = new Date(entry.timestamp);
         const minutes = Math.floor(localDate.getMinutes() / 10) * 10;
         const timeKey = `${localDate.getHours().toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
         
@@ -765,7 +884,6 @@ function updateMinuteChart() {
         minuteGroups[timeKey] += entry.count;
     });
     
-    // Sort labels and convert to 12-hour format
     const sortedLabels = Object.keys(minuteGroups).sort();
     const formattedLabels = sortedLabels.map(label => {
         const [hours, minutes] = label.split(':');
@@ -783,16 +901,13 @@ function updateMinuteChart() {
 function updateStats() {
     if (!currentData || currentData.length === 0) return;
     
-    // Calculate total today
     const totalToday = currentData.reduce((sum, entry) => sum + entry.count, 0);
     document.getElementById('totalToday').textContent = totalToday;
     
-    // Calculate current 5-minute period
     const now = new Date();
     const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
     
     const recentData = currentData.filter(entry => {
-        // Remove 'Z' suffix and treat as local time
         const timestamp = entry.timestamp.replace('Z', '');
         const entryTime = new Date(timestamp);
         return entryTime >= fiveMinutesAgo;
@@ -800,23 +915,19 @@ function updateStats() {
     const currentMinute = recentData.reduce((sum, entry) => sum + entry.count, 0);
     document.getElementById('currentMinute').textContent = currentMinute;
     
-    // Calculate peak 10-minute period
     let maxPeak = 0;
     for (let i = 0; i < currentData.length - 1; i++) {
-        const windowData = currentData.slice(i, i + 2); // 10-minute window
+        const windowData = currentData.slice(i, i + 2);
         const windowSum = windowData.reduce((sum, entry) => sum + entry.count, 0);
         maxPeak = Math.max(maxPeak, windowSum);
     }
     document.getElementById('peakMinute').textContent = maxPeak;
     
-    // Calculate average per minute
     const avgPerMinute = totalToday / Math.max(currentData.length, 1);
     document.getElementById('avgPerMinute').textContent = avgPerMinute.toFixed(1);
     
-    // Last visitor time
     if (currentData.length > 0) {
         const lastEntry = currentData[currentData.length - 1];
-        // Parse timestamp (already in local time)
         const localDate = new Date(lastEntry.timestamp);
         const lastTime = formatTime(localDate, { seconds: true });
         document.getElementById('lastVisitor').textContent = lastTime;
@@ -839,7 +950,6 @@ function updateYearStatsChart() {
 function updatePeakActivityChart() {
     if (!charts.peakActivity || !historicalData) return;
     
-    // Find the top 6 most active time slots across all years
     const timeSlotTotals = {};
     Object.values(historicalData).forEach(yearData => {
         Object.entries(yearData).forEach(([timeSlot, data]) => {
@@ -850,12 +960,10 @@ function updatePeakActivityChart() {
         });
     });
     
-    // Sort by total activity and take top 6
     const topTimeSlots = Object.entries(timeSlotTotals)
         .sort(([,a], [,b]) => b - a)
         .slice(0, 6);
     
-    // Format peak time slots to 12-hour format for labels
     const labels = topTimeSlots.map(([timeSlot]) => {
         const [hours, minutes] = timeSlot.split(':');
         const d = new Date();
@@ -873,21 +981,16 @@ function updatePeakActivityChart() {
 setInterval(() => {
     if (liveStatus) {
         loadCurrentData();
-        // Refresh detailed chart periodically while live
         loadDetailedData();
     }
-}, 10000); // Update every 10 seconds when live
-
-// Manual controls removed from UI
+}, 10000);
 
 // Check serial status
 async function checkSerialStatus() {
     try {
         const response = await fetch('/stats');
         const data = await response.json();
-        // Log serial connection status to console for debugging
         console.debug('Serial connected:', data.serial_connected);
-
         return data.serial_connected;
     } catch (error) {
         console.error('Error checking serial status:', error);
@@ -899,7 +1002,6 @@ async function checkSerialStatus() {
 function initializeDashboard() {
     updateLiveStatusDisplay();
     updateStatsVisibility();
-    // Serial status UI removed; continue to log status to console for debugging
     checkSerialStatus();
     setInterval(checkSerialStatus, 10000);
 }
