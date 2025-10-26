@@ -175,6 +175,7 @@ def index():
 
 
 @app.route('/live_status', methods=['GET'])
+@limiter.limit("1000 per hour")  # Allow frequent polling - ~16 per minute
 def get_live_status():
     """Get current live mode status"""
     state = load_live_mode_from_file()
@@ -268,6 +269,7 @@ def set_live():
 
 
 @app.route('/historical_data')
+@limiter.limit("200 per hour")  # Less frequent, but still reasonable
 def get_historical_data():
     """Serve historical data grouped by year and time of day"""
     try:
@@ -283,7 +285,7 @@ def get_historical_data():
             year = entry['year']
             timestamp_str = entry['timestamp']
             
-            # Parse timestamp - handle both UTC (with Z/offset) and legacy local timestamps
+            # Parse timestamp - handle both UTC and legacy local timestamps
             try:
                 if timestamp_str.endswith('Z') or '+' in timestamp_str or timestamp_str.count('-') > 2:
                     # UTC timestamp - parse and convert to local time
@@ -333,13 +335,9 @@ def get_historical_data():
     
 
 @app.route('/detailed_historical')
-@limiter.limit("2000 per hour")
+@limiter.limit("200 per hour")  # Less frequent
 def get_detailed_historical():
-    """Serve detailed per-entry historical data grouped by year.
-
-    Returns a mapping of year -> list of entries (timestamp, count, year).
-    This is used by the frontend to render per-arrival charts (minute level).
-    """
+    """Serve detailed per-entry historical data grouped by year."""
     try:
         if not os.path.exists(DATA_FILE):
             return jsonify({})
@@ -366,7 +364,6 @@ def get_detailed_historical():
         logger.error(f"Error loading detailed historical data: {e}")
         return jsonify({'error': str(e)}), 500
 
-
 @app.errorhandler(RateLimitExceeded)
 def handle_rate_limit(e):
     """Return JSON for rate-limited responses instead of HTML so clients can parse errors."""
@@ -375,7 +372,7 @@ def handle_rate_limit(e):
 
 
 @app.route('/current_data')
-@limiter.limit("2000 per hour")
+@limiter.limit("1000 per hour")  # Allow frequent updates during live mode
 def get_current_data():
     """Serve current year's data for live updates"""
     try:
@@ -478,6 +475,7 @@ def upload_batch():
 
 
 @app.route('/stats')
+@limiter.limit("1000 per hour")  # Allow frequent stat checks
 def get_stats():
     """Get current statistics"""
     try:
@@ -507,21 +505,19 @@ def get_stats():
             try:
                 # Parse timestamp - handle multiple formats
                 if timestamp_str.endswith('Z'):
-                    # UTC with Z suffix (e.g., "2024-10-31T22:00:00.123456Z")
+                    # UTC with Z suffix
                     entry_time = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
                 elif '+' in timestamp_str or timestamp_str.count('-') > 2:
-                    # Has timezone offset (e.g., "2024-10-31T18:00:00-04:00")
+                    # Has timezone offset
                     entry_time = datetime.fromisoformat(timestamp_str)
                 else:
-                    # No timezone info - assume it's a legacy timestamp that should have been converted
-                    # Treat as UTC for safety
+                    # No timezone info - assume UTC
                     entry_time = datetime.fromisoformat(timestamp_str).replace(tzinfo=timezone.utc)
                 
                 # Ensure timezone-aware for comparison
                 if entry_time.tzinfo is None:
                     entry_time = entry_time.replace(tzinfo=timezone.utc)
                 elif entry_time.tzinfo != timezone.utc:
-                    # Convert to UTC if in different timezone
                     entry_time = entry_time.astimezone(timezone.utc)
                 
                 if entry_time > recent_time_utc:
@@ -536,12 +532,11 @@ def get_stats():
         return jsonify({
             'total_count': len(current_year_data),
             'recent_count': recent_count,
-            'serial_connected': True,  # Always true for remote server
+            'serial_connected': True,
             'live_mode': current.get('enabled', False)
         })
     except Exception as e:
         logger.exception(f"Error getting stats: {e}")
-        # Return a more informative error response
         return jsonify({
             'error': 'Internal server error',
             'message': str(e),
