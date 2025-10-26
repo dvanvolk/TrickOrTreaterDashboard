@@ -482,13 +482,54 @@ def get_stats():
     """Get current statistics"""
     try:
         data = load_data()
+        if not data:
+            # Return empty stats if no data
+            current = load_live_mode_from_file()
+            return jsonify({
+                'total_count': 0,
+                'recent_count': 0,
+                'serial_connected': True,
+                'live_mode': current.get('enabled', False)
+            })
+        
         current_year = datetime.now().year
         current_year_data = [e for e in data if e.get('year') == current_year]
         
         # Count recent entries (last 5 minutes)
-        recent_time = datetime.now() - timedelta(minutes=5)
-        recent_count = sum(1 for e in current_year_data 
-                          if datetime.fromisoformat(e['timestamp']) > recent_time)
+        recent_time_utc = datetime.now(timezone.utc) - timedelta(minutes=5)
+        recent_count = 0
+        
+        for e in current_year_data:
+            timestamp_str = e.get('timestamp')
+            if not timestamp_str:
+                continue
+                
+            try:
+                # Parse timestamp - handle multiple formats
+                if timestamp_str.endswith('Z'):
+                    # UTC with Z suffix (e.g., "2024-10-31T22:00:00.123456Z")
+                    entry_time = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                elif '+' in timestamp_str or timestamp_str.count('-') > 2:
+                    # Has timezone offset (e.g., "2024-10-31T18:00:00-04:00")
+                    entry_time = datetime.fromisoformat(timestamp_str)
+                else:
+                    # No timezone info - assume it's a legacy timestamp that should have been converted
+                    # Treat as UTC for safety
+                    entry_time = datetime.fromisoformat(timestamp_str).replace(tzinfo=timezone.utc)
+                
+                # Ensure timezone-aware for comparison
+                if entry_time.tzinfo is None:
+                    entry_time = entry_time.replace(tzinfo=timezone.utc)
+                elif entry_time.tzinfo != timezone.utc:
+                    # Convert to UTC if in different timezone
+                    entry_time = entry_time.astimezone(timezone.utc)
+                
+                if entry_time > recent_time_utc:
+                    recent_count += 1
+                    
+            except (ValueError, AttributeError) as e:
+                logger.debug(f"Skipping entry with unparseable timestamp: {timestamp_str}, error: {e}")
+                continue
         
         # Get authoritative live mode state from file
         current = load_live_mode_from_file()
@@ -499,9 +540,16 @@ def get_stats():
             'live_mode': current.get('enabled', False)
         })
     except Exception as e:
-        logger.error(f"Error getting stats: {e}")
-        return jsonify({'error': str(e)}), 500
-
+        logger.exception(f"Error getting stats: {e}")
+        # Return a more informative error response
+        return jsonify({
+            'error': 'Internal server error',
+            'message': str(e),
+            'total_count': 0,
+            'recent_count': 0,
+            'serial_connected': True,
+            'live_mode': False
+        }), 500
 
 @app.route('/health')
 def health_check():
