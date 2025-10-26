@@ -283,21 +283,29 @@ def get_historical_data():
             year = entry['year']
             timestamp_str = entry['timestamp']
             
-            # Fix invalid hours
-            import re
-            def fix_invalid_hour(match):
-                hour = int(match.group(1))
-                if hour >= 24:
-                    return f"T{hour-24:02d}:"
-                return match.group(0)
-            
-            timestamp_str = re.sub(r'T(\d{2}):', fix_invalid_hour, timestamp_str)
-            
-            if timestamp_str.endswith('Z'):
-                timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
-            else:
-                timestamp = datetime.fromisoformat(timestamp_str)
-            time_of_day = timestamp.strftime('%H:%M')
+            # Parse timestamp - handle both UTC (with Z/offset) and legacy local timestamps
+            try:
+                if timestamp_str.endswith('Z') or '+' in timestamp_str or timestamp_str.count('-') > 2:
+                    # UTC timestamp - parse and convert to local time
+                    if timestamp_str.endswith('Z'):
+                        timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                    else:
+                        timestamp = datetime.fromisoformat(timestamp_str)
+                    
+                    # Convert UTC to local time (Eastern)
+                    # For October 31, use EDT offset (UTC-4)
+                    from datetime import timedelta
+                    local_offset = timedelta(hours=-4)  # EDT
+                    local_time = timestamp + local_offset
+                else:
+                    # Legacy local timestamp without timezone
+                    local_time = datetime.fromisoformat(timestamp_str)
+                
+                time_of_day = local_time.strftime('%H:%M')
+                
+            except Exception as e:
+                logger.warning(f"Failed to parse timestamp {timestamp_str}: {e}")
+                continue
             
             if year not in grouped_data:
                 grouped_data[year] = {}
@@ -322,7 +330,7 @@ def get_historical_data():
     except Exception as e:
         logger.error(f"Error loading historical data: {e}")
         return jsonify({'error': str(e)}), 500
-
+    
 
 @app.route('/detailed_historical')
 @limiter.limit("2000 per hour")
