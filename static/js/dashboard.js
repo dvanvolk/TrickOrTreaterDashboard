@@ -115,27 +115,18 @@ async function loadCurrentData() {
 }
 
 async function saveSummaryData() {
-    // If we already have current data loaded, use it
-    // Otherwise, fetch it one last time before live mode fully disables
+    // Fetch current year data (works regardless of live mode status)
     let dataToSave = currentData;
     
+    // If we don't have data in memory, fetch it from the server
     if (!dataToSave || dataToSave.length === 0) {
-        // Try to fetch the data one last time by calling the stats endpoint
-        // which works even when live mode is off
+        console.log('Fetching current year data for summary...');
         try {
-            const response = await fetch('/stats');
+            const response = await fetch('/current_year_data');
             if (response.ok) {
-                const stats = await response.json();
-                if (stats.total_count > 0) {
-                    // We have data, but we need the actual entries
-                    // Load from detailed_historical for the current year
-                    const detailResponse = await fetch('/detailed_historical');
-                    if (detailResponse.ok) {
-                        const allData = await detailResponse.json();
-                        const currentYear = new Date().getFullYear();
-                        dataToSave = allData[currentYear] || [];
-                    }
-                }
+                dataToSave = await response.json();
+            } else {
+                console.warn('Failed to fetch current year data for summary');
             }
         } catch (error) {
             console.error('Error fetching data for summary:', error);
@@ -145,8 +136,14 @@ async function saveSummaryData() {
     if (!dataToSave || dataToSave.length === 0) {
         savedSummary = null;
         console.log('No data available to save summary');
+        const summaryContainer = document.getElementById('summaryContainer');
+        if (summaryContainer) {
+            summaryContainer.innerHTML = '<p style="color: #ff6b35; font-size: 1.2em;">No data from this session</p>';
+        }
         return;
     }
+    
+    console.log(`Creating summary from ${dataToSave.length} entries`);
     
     const totalToday = dataToSave.reduce((sum, entry) => sum + entry.count, 0);
     
@@ -182,7 +179,7 @@ async function saveSummaryData() {
         year: new Date(dataToSave[0].timestamp).getFullYear()
     };
     
-    console.log('Summary saved:', savedSummary);
+    console.log('Summary saved:', { total: savedSummary.total, year: savedSummary.year });
     displaySummary();
 }
 
@@ -1029,92 +1026,3 @@ function initializeDashboard() {
     checkSerialStatus();
     setInterval(checkSerialStatus, 10000);
 }
-
-// Adaptive live-status poller with backoff and Retry-After handling
-(function() {
-    let pollIntervalMs = 2000;
-    const MIN_POLL = 2000;
-    const MAX_POLL = 60000;
-
-    async function checkLiveStatus() {
-        try {
-            const response = await fetch('/live_status');
-
-            if (response.status === 429) {
-                console.warn('/live_status returned 429 Too Many Requests');
-                const retryAfter = response.headers.get('Retry-After');
-                let delay = pollIntervalMs * 2;
-                if (retryAfter) {
-                    const ra = parseInt(retryAfter, 10);
-                    if (!isNaN(ra)) delay = Math.max(delay, ra * 1000);
-                }
-                pollIntervalMs = Math.min(delay, MAX_POLL);
-                console.info(`Backoff: next live-status check in ${pollIntervalMs}ms`);
-                try {
-                    const text = await response.text();
-                    console.debug('Live status response (429 body):', text.slice(0, 400));
-                } catch(e) { /* ignore body read errors */ }
-                setTimeout(checkLiveStatus, pollIntervalMs);
-                return;
-            }
-
-            if (!response.ok) {
-                console.warn(`/live_status returned HTTP ${response.status}`);
-                pollIntervalMs = Math.min(pollIntervalMs * 2, MAX_POLL);
-                setTimeout(checkLiveStatus, pollIntervalMs);
-                return;
-            }
-
-            const contentType = response.headers.get('content-type') || '';
-            if (!contentType.includes('application/json')) {
-                const text = await response.text();
-                console.warn('Unexpected non-JSON response from /live_status:', text.slice(0, 400));
-                pollIntervalMs = Math.min(pollIntervalMs * 2, MAX_POLL);
-                setTimeout(checkLiveStatus, pollIntervalMs);
-                return;
-            }
-
-            const data = await response.json();
-
-            pollIntervalMs = MIN_POLL;
-
-            // Detect transition from live to non-live
-            const wasLive = liveStatus;
-            const nowLive = data.live;
-
-            if (wasLive && !nowLive) {
-                // Live mode was just disabled - save summary
-                console.info('Live mode disabled - saving session summary');
-                saveSummaryData();
-            } else if (!wasLive && nowLive) {
-                // Live mode was just enabled - clear summary
-                console.info('Live mode enabled - clearing previous summary');
-                clearSummaryData();
-            }
-
-            if (nowLive !== liveStatus) {
-                console.info(`/live_status Debug ${nowLive}, ${liveStatus}`);
-                liveStatus = nowLive;
-                updateLiveStatusDisplay();
-                updateStatsVisibility();
-            }
-
-            // Update HH:MM live timer from server elapsed seconds
-            const seconds = data.elapsed_seconds || 0;
-            const minutes = Math.floor(seconds / 60);
-            const hours = Math.floor(minutes / 60);
-            const mm = String(minutes % 60).padStart(2, '0');
-            const hh = String(hours).padStart(2, '0');
-            document.getElementById('liveTimer').textContent = `${hh}:${mm}`;
-
-            setTimeout(checkLiveStatus, pollIntervalMs);
-        } catch (error) {
-            console.error('Error checking live status (network/parse):', error);
-            pollIntervalMs = Math.min(Math.max(pollIntervalMs * 2, MIN_POLL), MAX_POLL);
-            console.info(`Live-status fetch failed; retrying in ${pollIntervalMs}ms`);
-            setTimeout(checkLiveStatus, pollIntervalMs);
-        }
-    }
-
-    checkLiveStatus();
-})();
