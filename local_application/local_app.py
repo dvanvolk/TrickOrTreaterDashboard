@@ -18,6 +18,7 @@ import sys
 import time
 from typing import Optional
 import json
+import threading
 
 # Try package-relative imports (when run as a module), but fall back to
 # plain imports so this file can also be executed directly as a script
@@ -25,10 +26,12 @@ import json
 try:
     from .local_serial_monitor import LocalSerialMonitor
     from .dashboard_serial_integration import DashboardSerialIntegration
+    from .fetch_weather_api import fetch_weather, update_dashboard_weather
 except Exception:
     # Fallback for direct script execution
     from local_serial_monitor import LocalSerialMonitor
     from dashboard_serial_integration import DashboardSerialIntegration
+    from fetch_weather_api import fetch_weather, update_dashboard_weather
 
 LOGGER = logging.getLogger("local_app")
 
@@ -46,6 +49,42 @@ def parse_args() -> argparse.Namespace:
                    help="Run mode: 'monitor' uses LocalSerialMonitor (sends API calls). 'integration' uses DashboardSerialIntegration (local JSON integration).")
     return p.parse_args()
 
+
+def start_weather_updates(api_client, config: dict, should_stop) -> None:
+    """Run weather updates in a background thread"""
+    LOGGER.info("Starting weather update thread")
+    
+    latitude = config.get('latitude')
+    longitude = config.get('longitude')
+    
+    if not latitude or not longitude:
+        LOGGER.error("Weather updates disabled: Missing latitude/longitude in config")
+        return
+    
+    def weather_update_loop():
+        while not should_stop:
+            try:
+                condition, temperature = fetch_weather(latitude, longitude)
+                if condition is not None and temperature is not None:
+                    if update_dashboard_weather(api_client, condition, temperature):
+                        LOGGER.info(f"Weather updated: {condition}, {temperature}°F")
+                    else:
+                        LOGGER.warning("Failed to send weather update to dashboard")
+                
+                # Sleep for 15 minutes, but check should_stop every 30 seconds
+                # This allows the thread to exit more quickly when requested
+                for _ in range(30):  # 15 minutes = 30 * 30 seconds
+                    if should_stop:
+                        break
+                    time.sleep(30)
+                    
+            except Exception as e:
+                LOGGER.error(f"Error in weather update loop: {e}")
+                time.sleep(60)  # Wait a minute before retrying after error
+    
+    weather_thread = threading.Thread(target=weather_update_loop, daemon=True)
+    weather_thread.start()
+    return weather_thread
 
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -119,7 +158,11 @@ def main() -> int:
     signal.signal(signal.SIGINT, _signal_handler)
     signal.signal(signal.SIGTERM, _signal_handler)
 
+    weather_thread = None
     try:
+        # Start weather updates in both monitor and integration modes
+        weather_thread = start_weather_updates(api_client, config, should_stop)
+        
         if mode == "monitor":
             monitor = LocalSerialMonitor(port=port, api_client=api_client, baudrate=baudrate, local_backup=True)
             # Try to sync any pending data left from previous runs

@@ -646,7 +646,52 @@ def get_current_year_data():
     except Exception as e:
         logger.error(f"Error loading current year data: {e}")
         return jsonify({'error': str(e)}), 500
+
+@app.route('/weather', methods=['GET', 'POST'])
+@limiter.limit("100 per hour")
+def weather():
+    """Get or set weather status for the current session"""
+    WEATHER_FILE = os.path.join('data', 'weather.json')
     
+    if request.method == 'POST':
+        # Only allow setting weather with API key
+        api_key = request.headers.get('X-API-Key')
+        if not (api_key and api_key == API_KEY):
+            return jsonify({'error': 'Unauthorized'}), 401
+        
+        try:
+            body = request.get_json(silent=True) or {}
+            weather_data = {
+                'condition': body.get('condition', 'Clear'),
+                'temperature': body.get('temperature', 0),
+                'timestamp': datetime.now(timezone.utc).isoformat()
+            }
+            
+            with open(WEATHER_FILE, 'w') as f:
+                json.dump(weather_data, f, indent=2)
+            
+            logger.info(f"Weather updated: {weather_data}")
+            return jsonify(weather_data)
+        except Exception as e:
+            logger.error(f"Error updating weather: {e}")
+            return jsonify({'error': str(e)}), 500
+    
+    else:  # GET
+        try:
+            if os.path.exists(WEATHER_FILE):
+                with open(WEATHER_FILE, 'r') as f:
+                    return jsonify(json.load(f))
+            else:
+                return jsonify({
+                    'condition': 'Unknown',
+                    'temperature': 0,
+                    'timestamp': None
+                })
+        except Exception as e:
+            logger.error(f"Error loading weather: {e}")
+            return jsonify({'error': str(e)}), 500
+
+
 def create_app():
     """Factory function to create the Flask app instance.
     This is useful for gunicorn and other WSGI servers."""

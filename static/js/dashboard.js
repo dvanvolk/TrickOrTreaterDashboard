@@ -37,17 +37,20 @@ function updateLiveStatusDisplay() {
     const statusIndicator = document.getElementById('statusIndicator');
     const liveTimeContainer = document.getElementById('liveTimeContainer');
     const summaryContainer = document.getElementById('summaryContainer');
+    const weatherContainer = document.getElementById('weatherContainer');
 
     if (liveStatus) {
         statusElement.textContent = 'On';
         statusIndicator.className = 'status-indicator status-live';
         if (liveTimeContainer) liveTimeContainer.style.display = 'inline';
         if (summaryContainer) summaryContainer.style.display = 'none';
+        if (weatherContainer) weatherContainer.style.display = 'inline';
     } else {
         statusElement.textContent = 'Off';
         statusIndicator.className = 'status-indicator';
         if (liveTimeContainer) liveTimeContainer.style.display = 'none';
         if (summaryContainer) summaryContainer.style.display = 'block';
+        if (weatherContainer) weatherContainer.style.display = 'none';
     }
 }
 
@@ -64,6 +67,30 @@ async function loadHistoricalData() {
         updateYearComparisonChart();
     } catch (error) {
         console.error('Error loading historical data:', error);
+    }
+}
+
+async function loadWeather() {
+    try {
+        const response = await fetch('/weather');
+        if (response.ok) {
+            const weather = await response.json();
+            updateWeatherDisplay(weather);
+        }
+    } catch (error) {
+        console.error('Error loading weather:', error);
+    }
+}
+
+function updateWeatherDisplay(weather) {
+    const conditionEl = document.getElementById('weatherCondition');
+    const tempEl = document.getElementById('weatherTemp');
+    
+    if (conditionEl && weather.condition) {
+        conditionEl.textContent = weather.condition;
+    }
+    if (tempEl && weather.temperature !== undefined) {
+        tempEl.textContent = Math.round(weather.temperature);
     }
 }
 
@@ -1003,6 +1030,7 @@ setInterval(() => {
     if (liveStatus) {
         loadCurrentData();
         loadDetailedData();
+        loadWeather();
     }
 }, 10000);
 
