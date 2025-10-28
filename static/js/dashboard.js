@@ -1032,7 +1032,7 @@ setInterval(() => {
         loadDetailedData();
         loadWeather();
     }
-}, 10000);
+}, 2000);
 
 // Check serial status
 async function checkSerialStatus() {
@@ -1052,5 +1052,5 @@ function initializeDashboard() {
     updateLiveStatusDisplay();
     updateStatsVisibility();
     checkSerialStatus();
-    setInterval(checkSerialStatus, 10000);
+    setInterval(checkSerialStatus, 2000);
 }
