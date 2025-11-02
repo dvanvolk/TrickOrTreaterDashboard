@@ -648,7 +648,7 @@ def get_current_year_data():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/weather', methods=['GET', 'POST'])
-@limiter.limit("100 per hour")
+@limiter.limit("10 per hour")
 def weather():
     """Get or set weather status for the current session"""
     WEATHER_FILE = os.path.join('data', 'weather.json')
