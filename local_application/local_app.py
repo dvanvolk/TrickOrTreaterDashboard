@@ -51,7 +51,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def start_weather_updates(api_client, config: dict, should_stop) -> None:
-    """Run weather updates in a background thread"""
+    """Run weather updates in a background thread with better rate limit handling"""
     LOGGER.info("Starting weather update thread")
     
     latitude = config.get('latitude')
@@ -62,25 +62,54 @@ def start_weather_updates(api_client, config: dict, should_stop) -> None:
         return
     
     def weather_update_loop():
+        # Track consecutive failures to implement exponential backoff
+        consecutive_failures = 0
+        max_failures_before_backoff = 3
+        
         while not should_stop:
             try:
                 condition, temperature = fetch_weather(latitude, longitude)
+                
                 if condition is not None and temperature is not None:
+                    # Try to send to dashboard
                     if update_dashboard_weather(api_client, condition, temperature):
                         LOGGER.info(f"Weather updated: {condition}, {temperature}°F")
+                        consecutive_failures = 0  # Reset on success
                     else:
-                        LOGGER.warning("Failed to send weather update to dashboard")
+                        consecutive_failures += 1
+                        LOGGER.warning(f"Failed to send weather update to dashboard (failure {consecutive_failures})")
+                        
+                        # If we've had too many failures, back off more aggressively
+                        if consecutive_failures >= max_failures_before_backoff:
+                            backoff_minutes = min(consecutive_failures * 5, 30)  # Cap at 30 minutes
+                            LOGGER.warning(f"Multiple failures detected, backing off for {backoff_minutes} minutes")
+                            for _ in range(backoff_minutes * 2):  # Check every 30 seconds
+                                if should_stop:
+                                    break
+                                time.sleep(30)
+                            continue
+                else:
+                    LOGGER.warning("Failed to fetch weather from API")
+                    consecutive_failures += 1
                 
-                # Sleep for 15 minutes, but check should_stop every 30 seconds
-                # This allows the thread to exit more quickly when requested
+                # Normal sleep interval: 15 minutes
+                # But check should_stop every 30 seconds for clean shutdown
                 for _ in range(30):  # 15 minutes = 30 * 30 seconds
                     if should_stop:
                         break
                     time.sleep(30)
                     
             except Exception as e:
+                consecutive_failures += 1
                 LOGGER.error(f"Error in weather update loop: {e}")
-                time.sleep(60)  # Wait a minute before retrying after error
+                
+                # Exponential backoff on errors
+                backoff_seconds = min(60 * consecutive_failures, 300)  # Cap at 5 minutes
+                LOGGER.info(f"Backing off for {backoff_seconds} seconds after error")
+                for _ in range(backoff_seconds // 30):
+                    if should_stop:
+                        break
+                    time.sleep(30)
     
     weather_thread = threading.Thread(target=weather_update_loop, daemon=True)
     weather_thread.start()
