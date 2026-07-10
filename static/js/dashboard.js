@@ -52,7 +52,8 @@ function updateLiveStatusDisplay() {
         statusIndicator.className = 'status-indicator status-live';
         if (liveTimeContainer) liveTimeContainer.style.display = 'inline';
         if (summaryContainer) summaryContainer.style.display = 'none';
-        if (weatherContainer) weatherContainer.style.display = 'inline';
+        // Weather container shown/hidden by updateWeatherDisplay() after data loads
+        loadWeather();
     } else {
         statusElement.textContent = 'Off';
         statusIndicator.className = 'status-indicator';
@@ -131,15 +132,23 @@ async function loadWeather() {
 }
 
 function updateWeatherDisplay(weather) {
+    const container = document.getElementById('weatherContainer');
     const conditionEl = document.getElementById('weatherCondition');
     const tempEl = document.getElementById('weatherTemp');
-    
-    if (conditionEl && weather.condition) {
-        conditionEl.textContent = weather.condition;
+
+    const isUnknown = !weather || !weather.condition || weather.condition === 'Unknown';
+    const isStale = !weather?.timestamp ||
+        (Date.now() - new Date(weather.timestamp).getTime() > 30 * 60 * 1000);
+    const noTemp = weather?.temperature === null || weather?.temperature === undefined;
+
+    if (isUnknown || isStale || noTemp) {
+        if (container) container.style.display = 'none';
+        return;
     }
-    if (tempEl && weather.temperature !== undefined) {
-        tempEl.textContent = Math.round(weather.temperature);
-    }
+
+    if (container) container.style.display = 'inline';
+    if (conditionEl) conditionEl.textContent = weather.condition;
+    if (tempEl) tempEl.textContent = Math.round(weather.temperature);
 }
 
 async function loadCurrentData() {
@@ -1085,14 +1094,20 @@ function updatePeakActivityChart() {
     charts.peakActivity.update();
 }
 
-// Auto-refresh data when live
+// Auto-refresh trick-or-treater data when live (2-second poll)
 setInterval(() => {
     if (liveStatus) {
         loadCurrentData();
         loadDetailedData();
-        loadWeather();
     }
 }, 2000);
+
+// Weather changes slowly — poll every 5 minutes
+setInterval(() => {
+    if (liveStatus) {
+        loadWeather();
+    }
+}, 5 * 60 * 1000);
 
 // Check serial status
 async function checkSerialStatus() {

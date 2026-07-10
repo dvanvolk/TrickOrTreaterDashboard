@@ -1,12 +1,8 @@
-"""Local application entrypoint to manage serial port and send API calls.
+"""Fetch weather from Open-Meteo API and push to the dashboard.
 
-This script wires the serial monitor to the Dashboard API client.
-It provides a small CLI and reads configuration from environment variables.
-
-It uses the existing `LocalSerialMonitor` in this folder which expects
-an `api_client.DashboardAPIClient` to be importable. A lightweight
-`api_client.py` wrapper is provided in this folder to re-export the
-implementation from `remote_api_client.py`.
+Provides ``fetch_weather(lat, lon)`` which returns a (condition, temperature_F) tuple,
+and ``update_dashboard_weather(api_client, condition, temperature)`` which POSTs to /weather.
+Called by ``local_app.py``'s weather background thread.
 """
 from __future__ import annotations
 
@@ -71,15 +67,15 @@ def weather_code_to_condition(code: int) -> str:
     elif code in [1, 2, 3]:
         return "Partly Cloudy"
     elif code in [45, 48]:
-        return "Foggy"
+        return "Fog"
     elif code in [51, 53, 55, 56, 57]:
         return "Drizzle"
     elif code in [61, 63, 65, 66, 67]:
-        return "Rainy"
+        return "Rain"
     elif code in [71, 73, 75, 77, 85, 86]:
-        return "Snowy"
+        return "Snow"
     elif code in [80, 81, 82]:
-        return "Showers"
+        return "Rain"
     elif code in [95, 96, 99]:
         return "Thunderstorm"
     else:

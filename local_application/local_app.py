@@ -55,26 +55,26 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-def start_weather_updates(api_client, config: dict, should_stop) -> None:
+def start_weather_updates(api_client, config: dict, stop_event: threading.Event) -> None:
     """Run weather updates in a background thread with better rate limit handling"""
     LOGGER.info("Starting weather update thread")
-    
+
     latitude = config.get('latitude')
     longitude = config.get('longitude')
-    
+
     if not latitude or not longitude:
         LOGGER.error("Weather updates disabled: Missing latitude/longitude in config")
         return
-    
+
     def weather_update_loop():
         # Track consecutive failures to implement exponential backoff
         consecutive_failures = 0
         max_failures_before_backoff = 3
-        
-        while not should_stop:
+
+        while not stop_event.is_set():
             try:
                 condition, temperature = fetch_weather(latitude, longitude)
-                
+
                 if condition is not None and temperature is not None:
                     # Try to send to dashboard
                     if update_dashboard_weather(api_client, condition, temperature):
@@ -83,36 +83,36 @@ def start_weather_updates(api_client, config: dict, should_stop) -> None:
                     else:
                         consecutive_failures += 1
                         LOGGER.warning(f"Failed to send weather update to dashboard (failure {consecutive_failures})")
-                        
+
                         # If we've had too many failures, back off more aggressively
                         if consecutive_failures >= max_failures_before_backoff:
                             backoff_minutes = min(consecutive_failures * 5, 30)  # Cap at 30 minutes
                             LOGGER.warning(f"Multiple failures detected, backing off for {backoff_minutes} minutes")
                             for _ in range(backoff_minutes * 2):  # Check every 30 seconds
-                                if should_stop:
+                                if stop_event.is_set():
                                     break
                                 time.sleep(30)
                             continue
                 else:
                     LOGGER.warning("Failed to fetch weather from API")
                     consecutive_failures += 1
-                
+
                 # Normal sleep interval: 15 minutes
-                # But check should_stop every 30 seconds for clean shutdown
+                # But check stop_event every 30 seconds for clean shutdown
                 for _ in range(30):  # 15 minutes = 30 * 30 seconds
-                    if should_stop:
+                    if stop_event.is_set():
                         break
                     time.sleep(30)
-                    
+
             except Exception as e:
                 consecutive_failures += 1
                 LOGGER.error(f"Error in weather update loop: {e}")
-                
+
                 # Exponential backoff on errors
                 backoff_seconds = min(60 * consecutive_failures, 300)  # Cap at 5 minutes
                 LOGGER.info(f"Backing off for {backoff_seconds} seconds after error")
                 for _ in range(backoff_seconds // 30):
-                    if should_stop:
+                    if stop_event.is_set():
                         break
                     time.sleep(30)
     
@@ -177,12 +177,14 @@ def main() -> int:
     api_client = DashboardAPIClient(base_url=api_url, api_key=api_key)
 
     should_stop = False
+    stop_event = threading.Event()
     monitor = None
 
     def _signal_handler(sig, frame):
         nonlocal should_stop
         LOGGER.info("Received signal to stop (%s)", sig)
         should_stop = True
+        stop_event.set()
         # If the monitor is running, request it to exit cleanly
         try:
             if monitor is not None:
@@ -197,7 +199,7 @@ def main() -> int:
     weather_thread = None
     try:
         # Start weather updates in both monitor and integration modes
-        weather_thread = start_weather_updates(api_client, config, should_stop)
+        weather_thread = start_weather_updates(api_client, config, stop_event)
         
         if mode == "monitor":
             monitor = LocalSerialMonitor(port=port, api_client=api_client, baudrate=baudrate, local_backup=True, test_mode=test_mode)
@@ -226,6 +228,7 @@ def main() -> int:
 
     except KeyboardInterrupt:
         LOGGER.info("Interrupted by user")
+        stop_event.set()
     except Exception:
         LOGGER.exception("Unexpected error in local_app")
         return 2

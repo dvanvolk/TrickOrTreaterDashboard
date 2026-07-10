@@ -30,10 +30,12 @@ if not API_KEY:
 DATA_FILE = 'data/trickortreat_data.json'
 HISTORICAL_DATA_FILE = 'data/historical_data.json'
 WEATHER_FILE = os.path.join('data', 'weather.json')
+WEATHER_HISTORY_FILE = os.path.join('data', 'weather_history.json')
 
 # File locks prevent concurrent gunicorn workers from corrupting the JSON files
 DATA_LOCK = FileLock(DATA_FILE + '.lock')
 HISTORICAL_LOCK = FileLock(HISTORICAL_DATA_FILE + '.lock')
+WEATHER_HISTORY_LOCK = FileLock(WEATHER_HISTORY_FILE + '.lock')
 
 # Valid weather conditions (whitelisted to prevent stored XSS)
 VALID_CONDITIONS = {
@@ -802,6 +804,24 @@ def weather():
             with open(WEATHER_FILE, 'w') as f:
                 json.dump(weather_data, f, indent=2)
             logger.info(f"Weather updated: {condition}, {temperature}°F")
+
+            # Append to history for future analytics (only during live sessions)
+            live_state = load_live_mode_from_file()
+            if live_state.get('enabled'):
+                history_entry = {**weather_data, 'year': datetime.now(timezone.utc).year}
+                try:
+                    with WEATHER_HISTORY_LOCK:
+                        try:
+                            with open(WEATHER_HISTORY_FILE, 'r') as hf:
+                                history = json.load(hf)
+                        except (FileNotFoundError, json.JSONDecodeError):
+                            history = []
+                        history.append(history_entry)
+                        with open(WEATHER_HISTORY_FILE, 'w') as hf:
+                            json.dump(history, hf, indent=2)
+                except Exception:
+                    logger.warning("Failed to append weather history — non-critical")
+
             return jsonify(weather_data)
         except Exception:
             logger.exception("Error updating weather")
