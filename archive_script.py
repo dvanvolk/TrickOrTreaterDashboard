@@ -8,10 +8,15 @@ import requests
 import sys
 import os
 from datetime import datetime
+from dotenv import load_dotenv
 
-# Configuration - update these or set environment variables
-API_BASE_URL = os.environ.get('DASHBOARD_API_URL', 'https://yourdomain.com')
-API_KEY = os.environ.get('DASHBOARD_API_KEY', 'your-secure-api-key-here')
+load_dotenv()
+
+# Configuration — read from environment or .env file
+API_BASE_URL = os.environ.get('DASHBOARD_API_URL', 'https://cnytrickortreatcounter.com')
+API_KEY = os.environ.get('DASHBOARD_API_KEY', '')
+if not API_KEY:
+    sys.exit("Error: DASHBOARD_API_KEY environment variable is not set")
 
 def archive_year(year: int):
     """Archive data for a specific year"""

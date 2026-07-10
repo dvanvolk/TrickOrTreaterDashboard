@@ -19,6 +19,9 @@ import time
 from typing import Optional
 import json
 import threading
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Try package-relative imports (when run as a module), but fall back to
 # plain imports so this file can also be executed directly as a script

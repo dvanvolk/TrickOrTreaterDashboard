@@ -19,11 +19,15 @@ COPY live_control.py .
 COPY local_application/ local_application/
 COPY templates/ templates/
 COPY static/ static/
-COPY data/ data/
+# NOTE: data/ is NOT copied here — the docker-compose volume mount provides it at runtime.
+
+# Run as non-root user
+RUN adduser --no-create-home --disabled-password --gecos '' appuser && \
+    mkdir -p /app/data && chown -R appuser:appuser /app
+USER appuser
 
 # Expose port
 EXPOSE 8000
 
 # Start Gunicorn
 CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:8000", "app:create_app()", "--timeout", "120", "--access-logfile", "-"]
- 

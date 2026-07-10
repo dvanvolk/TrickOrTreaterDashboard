@@ -6,9 +6,10 @@ Receives data from local serial monitor via API
 
 from flask import Flask, render_template, jsonify, request
 from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
 from flask_limiter.errors import RateLimitExceeded
+from filelock import FileLock
 from functools import wraps
+import hmac
 import json
 import os
 from datetime import datetime, timedelta, timezone
@@ -22,16 +23,53 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__, static_folder='static', static_url_path='/static')
 
 # Configuration
-API_KEY = os.environ.get('DASHBOARD_API_KEY', 'your-secure-api-key-here')
+API_KEY = os.environ.get('DASHBOARD_API_KEY', '')
+if not API_KEY:
+    raise RuntimeError("DASHBOARD_API_KEY environment variable is not set — refusing to start")
+
 DATA_FILE = 'data/trickortreat_data.json'
 HISTORICAL_DATA_FILE = 'data/historical_data.json'
+WEATHER_FILE = os.path.join('data', 'weather.json')
+
+# File locks prevent concurrent gunicorn workers from corrupting the JSON files
+DATA_LOCK = FileLock(DATA_FILE + '.lock')
+HISTORICAL_LOCK = FileLock(HISTORICAL_DATA_FILE + '.lock')
+
+# Valid weather conditions (whitelisted to prevent stored XSS)
+VALID_CONDITIONS = {
+    'Clear', 'Cloudy', 'Partly Cloudy', 'Rain', 'Snow',
+    'Fog', 'Thunderstorm', 'Windy', 'Drizzle', 'Unknown'
+}
+
+
+def get_client_ip():
+    # Behind the Cloudflare tunnel the real IP arrives in this header.
+    # Safe to trust because port 8000 is not exposed externally.
+    return request.headers.get('CF-Connecting-IP') or request.remote_addr
+
 
 # Rate limiting to prevent abuse
 limiter = Limiter(
     app=app,
-    key_func=get_remote_address,
+    key_func=get_client_ip,
     default_limits=["200 per day", "50 per hour"]
 )
+
+app.config['MAX_CONTENT_LENGTH'] = 1 * 1024 * 1024  # 1 MB max request body
+
+
+@app.after_request
+def add_security_headers(response):
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    response.headers['Content-Security-Policy'] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src https://fonts.gstatic.com;"
+    )
+    return response
 
 # Create data directory
 os.makedirs('data', exist_ok=True)
@@ -127,8 +165,8 @@ def require_api_key(f):
     """Decorator to require API key authentication"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        api_key = request.headers.get('X-API-Key')
-        if api_key and api_key == API_KEY:
+        api_key = request.headers.get('X-API-Key') or ''
+        if api_key and hmac.compare_digest(api_key, API_KEY):
             return f(*args, **kwargs)
         logger.warning(f"Unauthorized API access attempt from {request.remote_addr}")
         return jsonify({'error': 'Unauthorized - Invalid API key'}), 401
@@ -155,6 +193,15 @@ def save_data(data: List[Dict[str, Any]]):
             json.dump(data, f, indent=2)
     except Exception as e:
         logger.error(f"Error saving data: {e}")
+
+
+def modify_data(fn):
+    """Load trickortreat_data.json, apply fn(data), save — all under DATA_LOCK."""
+    with DATA_LOCK:
+        data = load_data()
+        result = fn(data)
+        save_data(data)
+        return result
 
 
 def get_elapsed_seconds() -> int:
@@ -285,9 +332,9 @@ def set_live():
             'live': verify.get('enabled', False),
             'elapsed_seconds': get_elapsed_seconds()
         })
-    except Exception as e:
-        logger.error(f"Error setting live mode: {e}")
-        return jsonify({'error': str(e)}), 400
+    except Exception:
+        logger.exception("Error setting live mode")
+        return jsonify({'error': 'Internal server error'}), 500
 
 
 @app.route('/historical_data')
@@ -348,9 +395,9 @@ def get_historical_data():
                 }
         
         return jsonify(processed_data)
-    except Exception as e:
-        logger.error(f"Error loading historical data: {e}")
-        return jsonify({'error': str(e)}), 500
+    except Exception:
+        logger.exception("Error loading historical data")
+        return jsonify({'error': 'Internal server error'}), 500
     
 
 @app.route('/detailed_historical')
@@ -379,15 +426,14 @@ def get_detailed_historical():
                 pass
 
         return jsonify(grouped)
-    except Exception as e:
-        logger.error(f"Error loading detailed historical data: {e}")
-        return jsonify({'error': str(e)}), 500
+    except Exception:
+        logger.exception("Error loading detailed historical data")
+        return jsonify({'error': 'Internal server error'}), 500
 
 @app.errorhandler(RateLimitExceeded)
 def handle_rate_limit(e):
     """Return JSON for rate-limited responses instead of HTML so clients can parse errors."""
-    # e.description may contain details depending on limiter setup
-    return jsonify({'error': 'rate_limited', 'message': str(e)}), 429
+    return jsonify({'error': 'rate_limited', 'message': 'Too many requests'}), 429
 
 
 @app.route('/current_data')
@@ -404,9 +450,9 @@ def get_current_data():
         current_year = datetime.now().year
         current_year_data = [entry for entry in data if entry.get('year') == current_year]
         return jsonify(current_year_data)
-    except Exception as e:
-        logger.error(f"Error loading current data: {e}")
-        return jsonify({'error': str(e)}), 500
+    except Exception:
+        logger.exception("Error loading current data")
+        return jsonify({'error': 'Internal server error'}), 500
 
 
 @app.route('/add_trick_or_treater', methods=['POST'])
@@ -415,27 +461,17 @@ def get_current_data():
 def add_trick_or_treater():
     """Add a trick-or-treater count"""
     try:
-        data = load_data()
-        
         new_entry = {
             'timestamp': datetime.now(timezone.utc).isoformat(),
             'count': 1,
             'year': datetime.now().year
         }
-        
-        data.append(new_entry)
-        save_data(data)
-        
-        logger.info(f"Trick-or-treater added. Total count: {len(data)}")
-        
-        return jsonify({
-            'success': True,
-            'message': 'Trick-or-treater added',
-            'total_count': len(data)
-        })
-    except Exception as e:
-        logger.error(f"Error adding trick-or-treater: {e}")
-        return jsonify({'error': str(e)}), 500
+        total = modify_data(lambda d: d.append(new_entry) or len(d))
+        logger.info(f"Trick-or-treater added. Total count: {total}")
+        return jsonify({'success': True, 'message': 'Trick-or-treater added', 'total_count': total})
+    except Exception:
+        logger.exception("Error adding trick-or-treater")
+        return jsonify({'error': 'Internal server error'}), 500
 
 
 @app.route('/undo_last_entry', methods=['POST'])
@@ -444,25 +480,18 @@ def add_trick_or_treater():
 def undo_last_entry():
     """Undo the last trick-or-treater entry"""
     try:
-        data = load_data()
-        
-        if not data:
-            return jsonify({'error': 'No entries to undo'}), 400
-        
-        removed_entry = data.pop()
-        save_data(data)
-        
-        logger.info(f"Last entry removed: {removed_entry}")
-        
-        return jsonify({
-            'success': True,
-            'message': 'Last entry removed',
-            'removed_entry': removed_entry,
-            'total_count': len(data)
-        })
-    except Exception as e:
-        logger.error(f"Error undoing entry: {e}")
-        return jsonify({'error': str(e)}), 500
+        with DATA_LOCK:
+            data = load_data()
+            if not data:
+                return jsonify({'error': 'No entries to undo'}), 400
+            removed_entry = data.pop()
+            save_data(data)
+            total = len(data)
+        logger.info("Last entry removed (timestamp=%s)", removed_entry.get('timestamp'))
+        return jsonify({'success': True, 'message': 'Last entry removed', 'total_count': total})
+    except Exception:
+        logger.exception("Error undoing entry")
+        return jsonify({'error': 'Internal server error'}), 500
 
 
 @app.route('/add_test_entry', methods=['POST'])
@@ -471,28 +500,18 @@ def undo_last_entry():
 def add_test_entry():
     """Add a test trick-or-treater entry (excluded from stats and archiving)"""
     try:
-        data = load_data()
-
         new_entry = {
             'timestamp': datetime.now(timezone.utc).isoformat(),
             'count': 1,
             'year': datetime.now().year,
             'test': True
         }
-
-        data.append(new_entry)
-        save_data(data)
-
+        total = modify_data(lambda d: d.append(new_entry) or len(d))
         logger.info("Test entry added")
-
-        return jsonify({
-            'success': True,
-            'message': 'Test entry added',
-            'total_count': len(data)
-        })
-    except Exception as e:
-        logger.error(f"Error adding test entry: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'success': True, 'message': 'Test entry added', 'total_count': total})
+    except Exception:
+        logger.exception("Error adding test entry")
+        return jsonify({'error': 'Internal server error'}), 500
 
 
 @app.route('/purge_test_entries', methods=['POST'])
@@ -501,22 +520,25 @@ def add_test_entry():
 def purge_test_entries():
     """Remove all test entries from the data file"""
     try:
-        data = load_data()
-        clean = [e for e in data if not e.get('test', False)]
-        removed = len(data) - len(clean)
-        save_data(clean)
+        removed_count = [0]
 
-        logger.info(f"Purged {removed} test entries")
+        def _purge(data):
+            clean = [e for e in data if not e.get('test', False)]
+            removed_count[0] = len(data) - len(clean)
+            data[:] = clean
+            return len(clean)
 
+        remaining = modify_data(_purge)
+        logger.info(f"Purged {removed_count[0]} test entries")
         return jsonify({
             'success': True,
-            'message': f'Removed {removed} test entries',
-            'removed': removed,
-            'remaining': len(clean)
+            'message': f'Removed {removed_count[0]} test entries',
+            'removed': removed_count[0],
+            'remaining': remaining
         })
-    except Exception as e:
-        logger.error(f"Error purging test entries: {e}")
-        return jsonify({'error': str(e)}), 500
+    except Exception:
+        logger.exception("Error purging test entries")
+        return jsonify({'error': 'Internal server error'}), 500
 
 
 @app.route('/upload_batch', methods=['POST'])
@@ -525,26 +547,41 @@ def purge_test_entries():
 def upload_batch():
     """Upload a batch of data (for syncing pending local data)"""
     try:
-        body = request.get_json()
+        body = request.get_json(silent=True) or {}
         batch_data = body.get('data', [])
-        
+
         if not batch_data:
             return jsonify({'error': 'No data provided'}), 400
-        
-        existing_data = load_data()
-        existing_data.extend(batch_data)
-        save_data(existing_data)
-        
-        logger.info(f"Batch upload: {len(batch_data)} entries added")
-        
-        return jsonify({
-            'success': True,
-            'message': f'{len(batch_data)} entries uploaded',
-            'total_count': len(existing_data)
-        })
-    except Exception as e:
-        logger.error(f"Error uploading batch: {e}")
-        return jsonify({'error': str(e)}), 500
+        if not isinstance(batch_data, list):
+            return jsonify({'error': 'data must be a list'}), 400
+        if len(batch_data) > 500:
+            return jsonify({'error': 'Batch too large (max 500 entries)'}), 400
+
+        validated = []
+        for entry in batch_data:
+            if not isinstance(entry, dict):
+                return jsonify({'error': 'Each entry must be an object'}), 400
+            try:
+                ts = datetime.fromisoformat(str(entry['timestamp']).replace('Z', '+00:00'))
+            except (KeyError, ValueError):
+                return jsonify({'error': 'Invalid or missing timestamp'}), 400
+            count = entry.get('count', 1)
+            if not isinstance(count, int) or not (1 <= count <= 20):
+                return jsonify({'error': 'count must be an integer 1–20'}), 400
+            year = entry.get('year')
+            if not isinstance(year, int) or not (2019 <= year <= 2099):
+                return jsonify({'error': 'year out of range'}), 400
+            clean_entry = {'timestamp': ts.isoformat(), 'count': count, 'year': year}
+            if entry.get('test'):
+                clean_entry['test'] = True
+            validated.append(clean_entry)
+
+        total = modify_data(lambda d: d.extend(validated) or len(d))
+        logger.info(f"Batch upload: {len(validated)} entries added")
+        return jsonify({'success': True, 'message': f'{len(validated)} entries uploaded', 'total_count': total})
+    except Exception:
+        logger.exception("Error uploading batch")
+        return jsonify({'error': 'Internal server error'}), 500
 
 
 @app.route('/stats')
@@ -611,11 +648,10 @@ def get_stats():
             'serial_connected': True,
             'live_mode': current.get('enabled', False)
         })
-    except Exception as e:
-        logger.exception(f"Error getting stats: {e}")
+    except Exception:
+        logger.exception("Error getting stats")
         return jsonify({
             'error': 'Internal server error',
-            'message': str(e),
             'total_count': 0,
             'recent_count': 0,
             'serial_connected': True,
@@ -647,8 +683,10 @@ def archive_year():
         year = body.get('year')
         force = bool(body.get('force', False))
 
-        if not year:
+        if year is None:
             return jsonify({'error': 'Year parameter required'}), 400
+        if not isinstance(year, int) or not (2019 <= year <= 2099):
+            return jsonify({'error': 'year must be an integer between 2019 and 2099'}), 400
 
         # Load raw event data; skip test entries
         current_data = load_data()
@@ -659,24 +697,6 @@ def archive_year():
 
         if not year_data:
             return jsonify({'error': f'No data found for year {year}'}), 404
-
-        # Load historical data
-        if os.path.exists(HISTORICAL_DATA_FILE):
-            with open(HISTORICAL_DATA_FILE, 'r') as f:
-                historical = json.load(f)
-        else:
-            historical = []
-
-        # Idempotency guard
-        existing_years = {e['year'] for e in historical}
-        if year in existing_years and not force:
-            return jsonify({
-                'error': f'Year {year} is already archived. Pass "force": true to re-archive.'
-            }), 409
-
-        # Drop existing entries for this year when force re-archiving
-        if year in existing_years:
-            historical = [e for e in historical if e['year'] != year]
 
         # Group by 15-minute UTC intervals and aggregate.
         # Timestamps are stored as UTC; the display layer converts to local Eastern time.
@@ -699,28 +719,41 @@ def archive_year():
                 logger.warning(f"Failed to parse timestamp {timestamp_str}: {e}")
                 continue
 
-        # Append aggregated buckets to historical
-        for interval_time, count in interval_data.items():
-            historical.append({
-                'timestamp': interval_time,
-                'count': count,
-                'year': year
-            })
+        with HISTORICAL_LOCK:
+            if os.path.exists(HISTORICAL_DATA_FILE):
+                with open(HISTORICAL_DATA_FILE, 'r') as f:
+                    historical = json.load(f)
+            else:
+                historical = []
 
-        with open(HISTORICAL_DATA_FILE, 'w') as f:
-            json.dump(historical, f, indent=2)
+            # Idempotency guard
+            existing_years = {e['year'] for e in historical}
+            if year in existing_years and not force:
+                return jsonify({
+                    'error': f'Year {year} is already archived. Pass "force": true to re-archive.'
+                }), 409
+
+            # Drop existing entries for this year when force re-archiving
+            if year in existing_years:
+                historical = [e for e in historical if e['year'] != year]
+
+            # Append aggregated buckets to historical
+            for interval_time, count in interval_data.items():
+                historical.append({'timestamp': interval_time, 'count': count, 'year': year})
+
+            with open(HISTORICAL_DATA_FILE, 'w') as f:
+                json.dump(historical, f, indent=2)
 
         logger.info(f"Archived {len(interval_data)} intervals for year {year}")
-
         return jsonify({
             'success': True,
             'message': f'Archived {len(interval_data)} time intervals for year {year}',
             'intervals_archived': len(interval_data)
         })
 
-    except Exception as e:
-        logger.error(f"Error archiving year: {e}")
-        return jsonify({'error': str(e)}), 500
+    except Exception:
+        logger.exception("Error archiving year")
+        return jsonify({'error': 'Internal server error'}), 500
 
 @app.route('/current_year_data')
 @limiter.limit("1000 per hour")
@@ -731,53 +764,59 @@ def get_current_year_data():
         current_year = datetime.now().year
         current_year_data = [entry for entry in data if entry.get('year') == current_year]
         return jsonify(current_year_data)
-    except Exception as e:
-        logger.error(f"Error loading current year data: {e}")
-        return jsonify({'error': str(e)}), 500
+    except Exception:
+        logger.exception("Error loading current year data")
+        return jsonify({'error': 'Internal server error'}), 500
 
 @app.route('/weather', methods=['GET', 'POST'])
-@limiter.limit("10 per hour")
+@limiter.limit("60 per minute")
 def weather():
     """Get or set weather status for the current session"""
-    WEATHER_FILE = os.path.join('data', 'weather.json')
-    
     if request.method == 'POST':
-        # Only allow setting weather with API key
-        api_key = request.headers.get('X-API-Key')
-        if not (api_key and api_key == API_KEY):
+        api_key = request.headers.get('X-API-Key') or ''
+        if not (api_key and hmac.compare_digest(api_key, API_KEY)):
             return jsonify({'error': 'Unauthorized'}), 401
-        
+
         try:
             body = request.get_json(silent=True) or {}
+
+            condition = body.get('condition', '')
+            if condition not in VALID_CONDITIONS:
+                return jsonify({'error': f'Invalid condition. Valid values: {sorted(VALID_CONDITIONS)}'}), 400
+
+            temperature = body.get('temperature')
+            if temperature is None:
+                return jsonify({'error': 'temperature is required'}), 400
+            try:
+                temperature = float(temperature)
+            except (TypeError, ValueError):
+                return jsonify({'error': 'temperature must be a number'}), 400
+            if not (-60 <= temperature <= 140):
+                return jsonify({'error': 'temperature out of plausible range (-60 to 140°F)'}), 400
+
             weather_data = {
-                'condition': body.get('condition', 'Clear'),
-                'temperature': body.get('temperature', 0),
+                'condition': condition,
+                'temperature': temperature,
                 'timestamp': datetime.now(timezone.utc).isoformat()
             }
-            
             with open(WEATHER_FILE, 'w') as f:
                 json.dump(weather_data, f, indent=2)
-            
-            logger.info(f"Weather updated: {weather_data}")
+            logger.info(f"Weather updated: {condition}, {temperature}°F")
             return jsonify(weather_data)
-        except Exception as e:
-            logger.error(f"Error updating weather: {e}")
-            return jsonify({'error': str(e)}), 500
-    
+        except Exception:
+            logger.exception("Error updating weather")
+            return jsonify({'error': 'Internal server error'}), 500
+
     else:  # GET
         try:
             if os.path.exists(WEATHER_FILE):
                 with open(WEATHER_FILE, 'r') as f:
                     return jsonify(json.load(f))
             else:
-                return jsonify({
-                    'condition': 'Unknown',
-                    'temperature': 0,
-                    'timestamp': None
-                })
-        except Exception as e:
-            logger.error(f"Error loading weather: {e}")
-            return jsonify({'error': str(e)}), 500
+                return jsonify({'condition': 'Unknown', 'temperature': None, 'timestamp': None})
+        except Exception:
+            logger.exception("Error loading weather")
+            return jsonify({'error': 'Internal server error'}), 500
 
 
 def create_app():

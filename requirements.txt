@@ -1,9 +1,7 @@
 Flask
 Flask-Cors
 flask-limiter
-pandas
-numpy
-pyserial
-schedule
+filelock
+python-dotenv
 requests
 gunicorn

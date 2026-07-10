@@ -269,15 +269,27 @@ function displaySummary() {
     
     const summaryContainer = document.getElementById('summaryContainer');
     if (summaryContainer) {
-        summaryContainer.innerHTML = `
-            <h3 style="color: #ff6b35; margin-bottom: 10px;">📊 Session Summary (${savedSummary.year})</h3>
-            <p style="font-size: 1.3em; margin-bottom: 10px;">
-                <strong>Total Trick-or-Treaters:</strong> <span style="color: #4ecdc4; font-size: 1.4em;">${savedSummary.total}</span>
-            </p>
-            <p style="font-size: 0.9em; opacity: 0.8;">
-                Session ran from ${formatTime(new Date(savedSummary.firstTimestamp))} to ${formatTime(new Date(savedSummary.lastTimestamp))}
-            </p>
-        `;
+        summaryContainer.innerHTML = '';
+
+        const heading = document.createElement('h3');
+        heading.style.cssText = 'color: var(--accent); margin-bottom: 10px;';
+        heading.textContent = `📊 Session Summary (${savedSummary.year})`;
+
+        const totalPara = document.createElement('p');
+        totalPara.style.cssText = 'font-size: 1.3em; margin-bottom: 10px;';
+        const bold = document.createElement('strong');
+        bold.textContent = 'Total Trick-or-Treaters: ';
+        const countSpan = document.createElement('span');
+        countSpan.style.cssText = 'color: var(--accent-teal); font-size: 1.4em;';
+        countSpan.textContent = savedSummary.total;
+        totalPara.appendChild(bold);
+        totalPara.appendChild(countSpan);
+
+        const timeRange = document.createElement('p');
+        timeRange.style.cssText = 'font-size: 0.9em; opacity: 0.8;';
+        timeRange.textContent = `Session ran from ${formatTime(new Date(savedSummary.firstTimestamp))} to ${formatTime(new Date(savedSummary.lastTimestamp))}`;
+
+        summaryContainer.append(heading, totalPara, timeRange);
     }
     
     displaySummaryCharts();

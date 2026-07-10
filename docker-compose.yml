@@ -12,8 +12,7 @@ services:
     volumes:
       - ./data:/app/data
       - ./templates:/app/templates
-    ports:
-      - "8000:8000"
+    # ports not published — cloudflared reaches the app over the internal Docker network
     networks:
       - dashboard_network
     healthcheck:
