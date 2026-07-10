@@ -8,6 +8,8 @@ let detailedHistorical = {};
 let _currentDataSnapshot = null;
 // Summary data saved when live mode is disabled
 let savedSummary = null;
+let countdownTarget = null;
+let isHalloween = false;
 
 // Chart colors for different years
 const yearColors = {
@@ -23,6 +25,8 @@ document.addEventListener('DOMContentLoaded', function() {
     setupCharts();
     loadHistoricalData();
     loadDetailedData();
+    loadCountdownTarget();
+    setInterval(tickCountdown, 1000);
 });
 
 // Live status management
@@ -52,11 +56,51 @@ function updateLiveStatusDisplay() {
         if (summaryContainer) summaryContainer.style.display = 'block';
         if (weatherContainer) weatherContainer.style.display = 'none';
     }
+    updateCountdownVisibility();
 }
 
 function updateStatsVisibility() {
     const statsGrid = document.getElementById('statsGrid');
     statsGrid.style.display = liveStatus ? 'grid' : 'none';
+}
+
+function updateCountdownVisibility() {
+    const el = document.getElementById('countdownContainer');
+    if (!el) return;
+    el.style.display = liveStatus ? 'none' : 'block';
+}
+
+async function loadCountdownTarget() {
+    try {
+        const response = await fetch('/countdown');
+        if (!response.ok) return;
+        const data = await response.json();
+        countdownTarget = new Date(data.target);
+        isHalloween = data.is_halloween;
+        updateCountdownVisibility();
+    } catch (error) {
+        console.error('Error loading countdown target:', error);
+    }
+}
+
+function tickCountdown() {
+    if (!countdownTarget || liveStatus) return;
+    const diff = countdownTarget - new Date();
+    if (diff <= 0) {
+        document.getElementById('countdownDays').textContent = '0';
+        document.getElementById('countdownHours').textContent = '00';
+        document.getElementById('countdownMinutes').textContent = '00';
+        document.getElementById('countdownSeconds').textContent = '00';
+        return;
+    }
+    const days = Math.floor(diff / 86400000);
+    const hours = Math.floor((diff % 86400000) / 3600000);
+    const minutes = Math.floor((diff % 3600000) / 60000);
+    const seconds = Math.floor((diff % 60000) / 1000);
+    document.getElementById('countdownDays').textContent = days;
+    document.getElementById('countdownHours').textContent = String(hours).padStart(2, '0');
+    document.getElementById('countdownMinutes').textContent = String(minutes).padStart(2, '0');
+    document.getElementById('countdownSeconds').textContent = String(seconds).padStart(2, '0');
 }
 
 // Data loading

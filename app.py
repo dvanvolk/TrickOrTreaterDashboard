@@ -169,10 +169,31 @@ def get_elapsed_seconds() -> int:
         return 0
 
 
+def next_halloween_target() -> datetime:
+    eastern = ZoneInfo("America/New_York")
+    now = datetime.now(eastern)
+    target = datetime(now.year, 10, 31, 18, 0, 0, tzinfo=eastern)
+    if now >= target:
+        target = datetime(now.year + 1, 10, 31, 18, 0, 0, tzinfo=eastern)
+    return target
+
+
 @app.route('/')
 def index():
     """Serve dashboard HTML"""
     return render_template('trickortreat_dashboard.html')
+
+
+@app.route('/countdown')
+@limiter.limit("60 per minute")
+def countdown():
+    eastern = ZoneInfo("America/New_York")
+    target = next_halloween_target()
+    now = datetime.now(eastern)
+    return jsonify({
+        'target': target.isoformat(),
+        'is_halloween': now.month == 10 and now.day == 31
+    })
 
 
 @app.route('/live_status', methods=['GET'])
