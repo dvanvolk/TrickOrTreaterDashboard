@@ -12,6 +12,7 @@ from functools import wraps
 import json
 import os
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from typing import List, Dict, Any
 import logging
 
@@ -294,11 +295,8 @@ def get_historical_data():
                     else:
                         timestamp = datetime.fromisoformat(timestamp_str)
                     
-                    # Convert UTC to local time (Eastern)
-                    # For October 31, use EDT offset (UTC-4)
-                    from datetime import timedelta
-                    local_offset = timedelta(hours=-4)  # EDT
-                    local_time = timestamp + local_offset
+                    # Convert UTC to local Eastern time (handles DST automatically)
+                    local_time = timestamp.astimezone(ZoneInfo("America/New_York"))
                 else:
                     # Legacy local timestamp without timezone
                     local_time = datetime.fromisoformat(timestamp_str)
@@ -446,6 +444,60 @@ def undo_last_entry():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/add_test_entry', methods=['POST'])
+@require_api_key
+@limiter.limit("100 per minute")
+def add_test_entry():
+    """Add a test trick-or-treater entry (excluded from stats and archiving)"""
+    try:
+        data = load_data()
+
+        new_entry = {
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'count': 1,
+            'year': datetime.now().year,
+            'test': True
+        }
+
+        data.append(new_entry)
+        save_data(data)
+
+        logger.info("Test entry added")
+
+        return jsonify({
+            'success': True,
+            'message': 'Test entry added',
+            'total_count': len(data)
+        })
+    except Exception as e:
+        logger.error(f"Error adding test entry: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/purge_test_entries', methods=['POST'])
+@require_api_key
+@limiter.limit("10 per hour")
+def purge_test_entries():
+    """Remove all test entries from the data file"""
+    try:
+        data = load_data()
+        clean = [e for e in data if not e.get('test', False)]
+        removed = len(data) - len(clean)
+        save_data(clean)
+
+        logger.info(f"Purged {removed} test entries")
+
+        return jsonify({
+            'success': True,
+            'message': f'Removed {removed} test entries',
+            'removed': removed,
+            'remaining': len(clean)
+        })
+    except Exception as e:
+        logger.error(f"Error purging test entries: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/upload_batch', methods=['POST'])
 @require_api_key
 @limiter.limit("10 per hour")  # Limited for batch uploads
@@ -491,8 +543,11 @@ def get_stats():
             })
         
         current_year = datetime.now().year
-        current_year_data = [e for e in data if e.get('year') == current_year]
-        
+        current_year_data = [
+            e for e in data
+            if e.get('year') == current_year and not e.get('test', False)
+        ]
+
         # Count recent entries (last 5 minutes)
         recent_time_utc = datetime.now(timezone.utc) - timedelta(minutes=5)
         recent_count = 0
@@ -560,76 +615,88 @@ def health_check():
 @require_api_key
 @limiter.limit("10 per hour")
 def archive_year():
-    """Archive current year data to historical data (call this after Halloween to prepare for next year)"""
+    """Aggregate a year's raw events into 15-min buckets in historical_data.json.
+
+    Raw events in trickortreat_data.json are preserved as the source of truth.
+    Pass "force": true to re-archive a year that already exists in historical.
+    Test entries (test: true) are always excluded from archiving.
+    """
     try:
         body = request.get_json(silent=True) or {}
         year = body.get('year')
-        
+        force = bool(body.get('force', False))
+
         if not year:
             return jsonify({'error': 'Year parameter required'}), 400
-        
-        # Load current data
+
+        # Load raw event data; skip test entries
         current_data = load_data()
-        year_data = [entry for entry in current_data if entry.get('year') == year]
-        
+        year_data = [
+            e for e in current_data
+            if e.get('year') == year and not e.get('test', False)
+        ]
+
         if not year_data:
             return jsonify({'error': f'No data found for year {year}'}), 404
-        
+
         # Load historical data
         if os.path.exists(HISTORICAL_DATA_FILE):
             with open(HISTORICAL_DATA_FILE, 'r') as f:
                 historical = json.load(f)
         else:
             historical = []
-        
-        # Group by 15-minute intervals and aggregate
+
+        # Idempotency guard
+        existing_years = {e['year'] for e in historical}
+        if year in existing_years and not force:
+            return jsonify({
+                'error': f'Year {year} is already archived. Pass "force": true to re-archive.'
+            }), 409
+
+        # Drop existing entries for this year when force re-archiving
+        if year in existing_years:
+            historical = [e for e in historical if e['year'] != year]
+
+        # Group by 15-minute UTC intervals and aggregate.
+        # Timestamps are stored as UTC; the display layer converts to local Eastern time.
         interval_data = {}
         for entry in year_data:
             timestamp_str = entry['timestamp']
             try:
-                # Parse timestamp
                 if timestamp_str.endswith('Z'):
                     timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
                 else:
                     timestamp = datetime.fromisoformat(timestamp_str)
-                
-                # Convert to local time (EDT for October 31)
-                local_offset = timedelta(hours=-4)  # EDT
-                local_time = timestamp + local_offset
-                
-                # Round to 15-minute interval
-                minutes = (local_time.minute // 15) * 15
-                interval_time = local_time.replace(minute=minutes, second=0, microsecond=0)
+
+                minutes = (timestamp.minute // 15) * 15
+                interval_time = timestamp.replace(minute=minutes, second=0, microsecond=0)
                 interval_key = interval_time.isoformat()
-                
-                if interval_key not in interval_data:
-                    interval_data[interval_key] = 0
-                interval_data[interval_key] += entry.get('count', 1)
-                
+
+                interval_data[interval_key] = interval_data.get(interval_key, 0) + entry.get('count', 1)
+
             except Exception as e:
                 logger.warning(f"Failed to parse timestamp {timestamp_str}: {e}")
                 continue
-        
-        # Add aggregated data to historical
+
+        # Append aggregated buckets to historical
         for interval_time, count in interval_data.items():
             historical.append({
                 'timestamp': interval_time,
                 'count': count,
                 'year': year
             })
-        
-        # Save historical data
+
         with open(HISTORICAL_DATA_FILE, 'w') as f:
             json.dump(historical, f, indent=2)
-        
+
         logger.info(f"Archived {len(interval_data)} intervals for year {year}")
-        
+
         return jsonify({
             'success': True,
             'message': f'Archived {len(interval_data)} time intervals for year {year}',
             'intervals_archived': len(interval_data)
         })
-        
+
     except Exception as e:
         logger.error(f"Error archiving year: {e}")
         return jsonify({'error': str(e)}), 500

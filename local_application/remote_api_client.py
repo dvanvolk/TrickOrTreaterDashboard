@@ -151,13 +151,18 @@ class DashboardAPIClient:
     def add_trick_or_treater(self) -> Optional[Dict[str, Any]]:
         """
         Add a trick-or-treater count
-        
+
         Returns:
             Response dict with success message, or None on error
         """
         logger.info("Adding trick-or-treater")
         return self._make_request('POST', '/add_trick_or_treater')
-    
+
+    def add_test_entry(self) -> Optional[Dict[str, Any]]:
+        """Add a test entry (excluded from stats and archiving)."""
+        logger.info("Adding test entry")
+        return self._make_request('POST', '/add_test_entry')
+
     def undo_last_entry(self) -> Optional[Dict[str, Any]]:
         """
         Undo the last trick-or-treater entry

@@ -28,8 +28,8 @@ logger = logging.getLogger(__name__)
 class LocalSerialMonitor:
     """Monitors local serial port and sends data to remote dashboard"""
     
-    def __init__(self, port: str, api_client: 'DashboardAPIClient', 
-                 baudrate: int = 9600, local_backup: bool = True):
+    def __init__(self, port: str, api_client: 'DashboardAPIClient',
+                 baudrate: int = 9600, local_backup: bool = True, test_mode: bool = False):
         """
         Initialize serial monitor
         
@@ -43,6 +43,7 @@ class LocalSerialMonitor:
         self.api_client = api_client
         self.baudrate = baudrate
         self.local_backup = local_backup
+        self.test_mode = test_mode
         self.serial_conn: Optional[serial.Serial] = None
         self.is_running = False
         self.local_data_file = 'data/trickortreat_data_backup.json'
@@ -115,12 +116,16 @@ class LocalSerialMonitor:
         # or radio messages like 'Button 1', 'Button: 1', etc.
         import re
         if b.upper() == 'COUNT':
-            # Add trick-or-treater
-            result = self.api_client.add_trick_or_treater()
-            
+            if self.test_mode:
+                result = self.api_client.add_test_entry()
+                label = "test entry"
+            else:
+                result = self.api_client.add_trick_or_treater()
+                label = "trick-or-treater"
+
             if result:
-                logger.info("✓ Trick-or-treater counted successfully")
-                
+                logger.info(f"✓ {label.capitalize()} counted successfully")
+
                 # Save local backup
                 if self.local_backup:
                     data = {
@@ -130,7 +135,7 @@ class LocalSerialMonitor:
                     }
                     self.save_local_backup(data)
             else:
-                logger.error("✗ Failed to send count to server (saved locally)")
+                logger.error(f"✗ Failed to send {label} to server (saved locally)")
                 # Still save locally if server is unreachable
                 if self.local_backup:
                     data = {
@@ -158,9 +163,14 @@ class LocalSerialMonitor:
 
             # Map button numbers to actions: 1 -> COUNT, 3 -> UNDO (2 unused)
             if idx == 1:
-                result = self.api_client.add_trick_or_treater()
+                if self.test_mode:
+                    result = self.api_client.add_test_entry()
+                    label = "test entry"
+                else:
+                    result = self.api_client.add_trick_or_treater()
+                    label = "trick-or-treater"
                 if result:
-                    logger.info("✓ Trick-or-treater counted successfully (button)")
+                    logger.info(f"✓ {label.capitalize()} counted successfully (button)")
                     if self.local_backup:
                         data = {
                             'timestamp': datetime.now().isoformat(),
@@ -169,7 +179,7 @@ class LocalSerialMonitor:
                         }
                         self.save_local_backup(data)
                 else:
-                    logger.error("✗ Failed to send count to server (saved locally) (button)")
+                    logger.error(f"✗ Failed to send {label} to server (saved locally) (button)")
                     if self.local_backup:
                         data = {
                             'timestamp': datetime.now().isoformat(),
@@ -226,6 +236,8 @@ class LocalSerialMonitor:
         # If the server is rate-limiting (429) or unreachable, don't hammer
         # the /set_live endpoint — retry with exponential backoff instead.
         self.is_running = True
+        if self.test_mode:
+            logger.warning("⚠ TEST MODE ACTIVE — button presses will send test entries only")
         logger.info("Starting serial monitor... Press Ctrl+C to stop")
 
         last_health_check = time.time()

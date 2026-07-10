@@ -47,6 +47,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--baudrate", type=int)
     p.add_argument("--mode", choices=["monitor", "integration"],
                    help="Run mode: 'monitor' uses LocalSerialMonitor (sends API calls). 'integration' uses DashboardSerialIntegration (local JSON integration).")
+    p.add_argument("--test-mode", action="store_true", default=False,
+                   help="Send test entries instead of real counts (excludes from stats and archiving)")
     return p.parse_args()
 
 
@@ -148,6 +150,7 @@ def main() -> int:
     cfg['api_key'] = config.get('api_key') or config.get('apiKey')
     cfg['baudrate'] = config.get('baudrate') or config.get('baud_rate')
     cfg['mode'] = config.get('mode')
+    cfg['test_mode'] = config.get('test_mode', False)
 
     # Determine final runtime values with precedence: CLI > config.json > env > hardcoded default
     port = args.port or cfg.get('port') or os.environ.get('SERIAL_PORT', 'COM3')
@@ -155,6 +158,7 @@ def main() -> int:
     api_key = args.api_key or cfg.get('api_key') or os.environ.get('DASHBOARD_API_KEY', '')
     baudrate = args.baudrate or cfg.get('baudrate') or int(os.environ.get('SERIAL_BAUD', '115200'))
     mode = args.mode or cfg.get('mode') or os.environ.get('LOCAL_APP_MODE', 'monitor')
+    test_mode = args.test_mode or cfg.get('test_mode') or (os.environ.get('TEST_MODE', '').lower() in ('1', 'true', 'yes'))
 
     LOGGER.info("Starting local_app in '%s' mode", mode)
 
@@ -193,7 +197,7 @@ def main() -> int:
         weather_thread = start_weather_updates(api_client, config, should_stop)
         
         if mode == "monitor":
-            monitor = LocalSerialMonitor(port=port, api_client=api_client, baudrate=baudrate, local_backup=True)
+            monitor = LocalSerialMonitor(port=port, api_client=api_client, baudrate=baudrate, local_backup=True, test_mode=test_mode)
             # Try to sync any pending data left from previous runs
             monitor.sync_pending_data()
 
