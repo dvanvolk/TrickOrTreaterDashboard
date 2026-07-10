@@ -48,3 +48,19 @@ function toISOStringLocal(d) {
     // Use the Date's toISOString (UTC) — Chart.js adapter will interpret correctly.
     return dateObj.toISOString();
 }
+
+/**
+ * Apply dark-theme defaults to all Chart.js instances.
+ * Call once before any charts are created (e.g., top of DOMContentLoaded).
+ */
+function applyChartDefaults() {
+    Chart.defaults.color = 'rgba(255,255,255,0.8)';
+    Chart.defaults.font.family = "'Nunito', Arial, sans-serif";
+    Chart.defaults.plugins.tooltip.backgroundColor = 'rgba(13,13,26,0.92)';
+    Chart.defaults.plugins.tooltip.titleColor = '#ff6b35';
+    Chart.defaults.plugins.tooltip.bodyColor = 'rgba(255,255,255,0.9)';
+    Chart.defaults.plugins.tooltip.borderColor = 'rgba(255,107,53,0.35)';
+    Chart.defaults.plugins.tooltip.borderWidth = 1;
+    Chart.defaults.scale.grid = { color: 'rgba(255,255,255,0.1)' };
+    Chart.defaults.scale.ticks = { color: 'rgba(255,255,255,0.75)' };
+}

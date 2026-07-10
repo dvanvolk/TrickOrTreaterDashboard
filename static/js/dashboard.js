@@ -11,16 +11,20 @@ let savedSummary = null;
 let countdownTarget = null;
 let isHalloween = false;
 
-// Chart colors for different years
-const yearColors = {
-    2022: '#ff6b35',
-    2023: '#4ecdc4', 
-    2024: '#45b7d1',
-    2025: '#96ceb4'
-};
+// Ordered color palette for years — extends automatically for 2026+
+const YEAR_COLOR_PALETTE = [
+    '#ff6b35', '#4ecdc4', '#45b7d1', '#96ceb4',
+    '#c792ea', '#f7c59f', '#e9c46a', '#e76f51',
+];
+
+function getYearColor(year) {
+    const idx = (parseInt(year, 10) - 2022 + YEAR_COLOR_PALETTE.length) % YEAR_COLOR_PALETTE.length;
+    return YEAR_COLOR_PALETTE[Math.max(0, idx)];
+}
 
 // Initialize dashboard on page load
 document.addEventListener('DOMContentLoaded', function() {
+    applyChartDefaults();
     initializeDashboard();
     setupCharts();
     loadHistoricalData();
@@ -521,7 +525,7 @@ function updateDetailedScatterChart(yearParam) {
     else {
         const selector = document.getElementById('yearSelector');
         if (selector && selector.value) yearToShow = parseInt(selector.value, 10);
-        else yearToShow = years.includes(2024) ? 2024 : Math.max(...years);
+        else yearToShow = Math.max(...years);
     }
 
     const entries = detailedHistorical[yearToShow] || [];
@@ -561,7 +565,7 @@ function updateDetailedYearChart(yearParam) {
     else {
         const selector = document.getElementById('yearSelector');
         if (selector && selector.value) yearToShow = parseInt(selector.value, 10);
-        else yearToShow = years.includes(2024) ? 2024 : Math.max(...years);
+        else yearToShow = Math.max(...years);
     }
 
     const labelEl = document.getElementById('detailedYearLabel');
@@ -898,8 +902,8 @@ function updateYearComparisonChart() {
         datasets.push({
             label: year,
             data: data,
-            borderColor: yearColors[year] || '#666',
-            backgroundColor: yearColors[year] + '20' || '#66620',
+            borderColor: getYearColor(year),
+            backgroundColor: getYearColor(year) + '20',
             tension: 0.4,
             pointRadius: 4,
             pointHoverRadius: 6

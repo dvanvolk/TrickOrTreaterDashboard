@@ -1,3 +1,16 @@
+:root {
+    --bg-1: #0d0d1a;
+    --bg-2: #1a0a2e;
+    --bg-grad-end: #2d1000;
+    --accent: #ff6b35;
+    --accent-teal: #4ecdc4;
+    --accent-green: #4ade80;
+    --card-bg: rgba(255, 255, 255, 0.08);
+    --card-border: rgba(255, 255, 255, 0.15);
+    --font-display: 'Creepster', cursive;
+    --font-body: 'Nunito', Arial, sans-serif;
+}
+
 * {
     margin: 0;
     padding: 0;
@@ -5,8 +18,8 @@
 }
 
 body {
-    font-family: 'Arial', sans-serif;
-    background: linear-gradient(135deg, #1e1e2e, #2d1b69, #ff6b35);
+    font-family: var(--font-body);
+    background: linear-gradient(135deg, var(--bg-1), var(--bg-2), var(--bg-grad-end));
     color: white;
     min-height: 100vh;
     padding: 20px;
@@ -27,9 +40,11 @@ body {
 }
 
 .header h1 {
-    font-size: 2.5em;
+    font-family: var(--font-display);
+    font-size: 3em;
+    letter-spacing: 2px;
     margin-bottom: 10px;
-    color: #ff6b35;
+    color: var(--accent);
     text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
 }
 
@@ -40,14 +55,20 @@ body {
     margin-bottom: 30px;
 }
 
+@keyframes cardEntrance {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
 .stat-card {
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--card-bg);
     padding: 20px;
     border-radius: 15px;
     text-align: center;
     backdrop-filter: blur(10px);
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    border: 1px solid var(--card-border);
     transition: transform 0.3s ease;
+    animation: cardEntrance 0.4s ease-out both;
 }
 
 .stat-card:hover {
@@ -55,9 +76,9 @@ body {
 }
 
 .stat-number {
-    font-size: 2.5em;
+    font-size: 3em;
     font-weight: bold;
-    color: #ff6b35;
+    color: var(--accent);
     margin-bottom: 5px;
 }
 
@@ -74,11 +95,11 @@ body {
 }
 
 .chart-container {
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--card-bg);
     padding: 20px;
     border-radius: 15px;
     backdrop-filter: blur(10px);
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    border: 1px solid var(--card-border);
     height: 300px;
 }
 
@@ -90,7 +111,7 @@ body {
 .chart-title {
     font-size: 1.2em;
     margin-bottom: 15px;
-    color: #ff6b35;
+    color: var(--accent);
     text-align: center;
 }
 
@@ -104,12 +125,49 @@ body {
 }
 
 .status-live {
-    background: #4ade80;
+    background: var(--accent-green);
 }
 
 @keyframes pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.5; }
+}
+
+/* Countdown decorative rotating elements */
+.countdown-decor {
+    position: relative;
+    height: 2em;
+    margin-top: 10px;
+    font-size: 1.4em;
+    text-align: center;
+}
+
+.countdown-decor > span {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    opacity: 0;
+}
+
+@keyframes cycleShow {
+    0%, 28%  { opacity: 1; }
+    33%, 100% { opacity: 0; }
+}
+
+@keyframes ghostFloat {
+    0%, 100% { transform: translateX(-50%) translateY(0); }
+    50%      { transform: translateX(-50%) translateY(-6px); }
+}
+
+.decor-ghost   { animation: cycleShow 9s ease infinite 0s,
+                             ghostFloat 2.5s ease-in-out infinite; }
+.decor-bats    { animation: cycleShow 9s ease infinite 3s; }
+.decor-pumpkin { animation: cycleShow 9s ease infinite 6s; }
+
+@media (prefers-reduced-motion: reduce) {
+    .decor-ghost, .decor-bats, .decor-pumpkin { animation: none; }
+    .decor-ghost { opacity: 1; }
+    .stat-card { animation: none; }
 }
 
 @media (max-width: 768px) {
