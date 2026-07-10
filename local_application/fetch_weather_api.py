@@ -6,26 +6,9 @@ Called by ``local_app.py``'s weather background thread.
 """
 from __future__ import annotations
 
-import argparse
 import logging
-import os
-import signal
-import sys
-import time
 from typing import Optional
-import json
 import requests
-
-# Try package-relative imports (when run as a module), but fall back to
-# plain imports so this file can also be executed directly as a script
-# (e.g. `python local_app.py -h`) from the `local_application` folder.
-try:
-    from .local_serial_monitor import LocalSerialMonitor
-    from .dashboard_serial_integration import DashboardSerialIntegration
-except Exception:
-    # Fallback for direct script execution
-    from local_serial_monitor import LocalSerialMonitor
-    from dashboard_serial_integration import DashboardSerialIntegration
 
 LOGGER = logging.getLogger("local_app")
 

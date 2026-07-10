@@ -139,13 +139,13 @@ class LocalSerialMonitor:
                 # Still save locally if server is unreachable
                 if self.local_backup:
                     data = {
-                        'timestamp': datetime.now().isoformat(),
+                        'timestamp': datetime.now(timezone.utc).isoformat(),
                         'count': 1,
                         'year': datetime.now().year,
                         'pending_upload': True
                     }
                     self.save_local_backup(data)
-        
+
             return
 
         # Handle 'Button' style messages
@@ -173,7 +173,7 @@ class LocalSerialMonitor:
                     logger.info(f"✓ {label.capitalize()} counted successfully (button)")
                     if self.local_backup:
                         data = {
-                            'timestamp': datetime.now().isoformat(),
+                            'timestamp': datetime.now(timezone.utc).isoformat(),
                             'count': 1,
                             'year': datetime.now().year
                         }
@@ -182,7 +182,7 @@ class LocalSerialMonitor:
                     logger.error(f"✗ Failed to send {label} to server (saved locally) (button)")
                     if self.local_backup:
                         data = {
-                            'timestamp': datetime.now().isoformat(),
+                            'timestamp': datetime.now(timezone.utc).isoformat(),
                             'count': 1,
                             'year': datetime.now().year,
                             'pending_upload': True

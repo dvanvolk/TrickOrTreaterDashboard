@@ -189,10 +189,12 @@ def load_data() -> List[Dict[str, Any]]:
 
 
 def save_data(data: List[Dict[str, Any]]):
-    """Save data to file"""
+    """Save data to file atomically (write to .tmp then rename to avoid truncating on crash)."""
     try:
-        with open(DATA_FILE, 'w') as f:
+        tmp = DATA_FILE + '.tmp'
+        with open(tmp, 'w') as f:
             json.dump(data, f, indent=2)
+        os.replace(tmp, DATA_FILE)
     except Exception as e:
         logger.error(f"Error saving data: {e}")
 
@@ -450,7 +452,10 @@ def get_current_data():
         
         data = load_data()
         current_year = datetime.now().year
-        current_year_data = [entry for entry in data if entry.get('year') == current_year]
+        current_year_data = [
+            entry for entry in data
+            if entry.get('year') == current_year and not entry.get('test', False)
+        ]
         return jsonify(current_year_data)
     except Exception:
         logger.exception("Error loading current data")
@@ -764,7 +769,10 @@ def get_current_year_data():
     try:
         data = load_data()
         current_year = datetime.now().year
-        current_year_data = [entry for entry in data if entry.get('year') == current_year]
+        current_year_data = [
+            entry for entry in data
+            if entry.get('year') == current_year and not entry.get('test', False)
+        ]
         return jsonify(current_year_data)
     except Exception:
         logger.exception("Error loading current year data")

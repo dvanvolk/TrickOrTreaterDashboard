@@ -6,6 +6,7 @@ let currentData = [];
 let detailedHistorical = {};
 // Snapshot to avoid re-updating charts if data hasn't changed
 let _currentDataSnapshot = null;
+let _detailedHistoricalSnapshot = null;
 // Summary data saved when live mode is disabled
 let savedSummary = null;
 let countdownTarget = null;
@@ -496,7 +497,11 @@ async function loadDetailedData() {
             return;
         }
 
-        detailedHistorical = await resp.json();
+        const newData = await resp.json();
+        const newSnapshot = Object.values(newData).reduce((sum, entries) => sum + entries.length, 0);
+        if (newSnapshot === _detailedHistoricalSnapshot) return;
+        detailedHistorical = newData;
+        _detailedHistoricalSnapshot = newSnapshot;
         populateYearSelector();
         updateDetailedYearChart();
         updateDetailedScatterChart();
@@ -555,9 +560,8 @@ function updateDetailedScatterChart(yearParam) {
     entries.forEach((e, idx) => {
         let ts = e.timestamp;
         if (!ts) return;
-        const utcDate = new Date(ts);
-        const localDate = new Date(utcDate.getTime() - utcDate.getTimezoneOffset() * 60000);
-        const minutes = localDate.getHours() * 60 + localDate.getMinutes() + (localDate.getSeconds() / 60);
+        const d = new Date(ts);
+        const minutes = d.getHours() * 60 + d.getMinutes() + (d.getSeconds() / 60);
         const jitter = ((idx % 5) - 2) * 0.18;
         points.push({ x: minutes, y: 1 + jitter });
     });
@@ -1033,14 +1037,30 @@ function updateStats() {
     document.getElementById('currentMinute').textContent = currentMinute;
     
     let maxPeak = 0;
-    for (let i = 0; i < currentData.length - 1; i++) {
-        const windowData = currentData.slice(i, i + 2);
-        const windowSum = windowData.reduce((sum, entry) => sum + entry.count, 0);
+    for (let i = 0; i < currentData.length; i++) {
+        const windowStart = new Date(currentData[i].timestamp).getTime();
+        const windowEnd = windowStart + 10 * 60 * 1000;
+        let windowSum = 0;
+        for (let j = i; j < currentData.length; j++) {
+            if (new Date(currentData[j].timestamp).getTime() <= windowEnd) {
+                windowSum += currentData[j].count;
+            } else {
+                break;
+            }
+        }
         maxPeak = Math.max(maxPeak, windowSum);
     }
     document.getElementById('peakMinute').textContent = maxPeak;
-    
-    const avgPerMinute = totalToday / Math.max(currentData.length, 1);
+
+    let avgPerMinute = 0;
+    if (currentData.length >= 2) {
+        const firstTime = new Date(currentData[0].timestamp).getTime();
+        const lastTime = new Date(currentData[currentData.length - 1].timestamp).getTime();
+        const elapsedMinutes = (lastTime - firstTime) / 60000;
+        if (elapsedMinutes > 0) {
+            avgPerMinute = totalToday / elapsedMinutes;
+        }
+    }
     document.getElementById('avgPerMinute').textContent = avgPerMinute.toFixed(1);
     
     if (currentData.length > 0) {
@@ -1098,9 +1118,15 @@ function updatePeakActivityChart() {
 setInterval(() => {
     if (liveStatus) {
         loadCurrentData();
-        loadDetailedData();
     }
 }, 2000);
+
+// Detailed historical charts update at most once per minute (rate limit: 200/hr)
+setInterval(() => {
+    if (liveStatus) {
+        loadDetailedData();
+    }
+}, 60 * 1000);
 
 // Weather changes slowly — poll every 5 minutes
 setInterval(() => {
@@ -1109,23 +1135,8 @@ setInterval(() => {
     }
 }, 5 * 60 * 1000);
 
-// Check serial status
-async function checkSerialStatus() {
-    try {
-        const response = await fetch('/stats');
-        const data = await response.json();
-        console.debug('Serial connected:', data.serial_connected);
-        return data.serial_connected;
-    } catch (error) {
-        console.error('Error checking serial status:', error);
-        return false;
-    }
-}
-
 // Initialize dashboard
 function initializeDashboard() {
     updateLiveStatusDisplay();
     updateStatsVisibility();
-    checkSerialStatus();
-    setInterval(checkSerialStatus, 2000);
 }
