@@ -778,73 +778,82 @@ def get_current_year_data():
         logger.exception("Error loading current year data")
         return jsonify({'error': 'Internal server error'}), 500
 
-@app.route('/weather', methods=['GET', 'POST'])
-@limiter.limit("60 per minute")
-def weather():
-    """Get or set weather status for the current session"""
-    if request.method == 'POST':
-        api_key = request.headers.get('X-API-Key') or ''
-        if not (api_key and hmac.compare_digest(api_key, API_KEY)):
-            return jsonify({'error': 'Unauthorized'}), 401
+@app.route('/weather', methods=['GET'])
+@limiter.limit("120 per minute")
+def weather_get():
+    """Get current weather status."""
+    try:
+        if os.path.exists(WEATHER_FILE):
+            with open(WEATHER_FILE, 'r') as f:
+                return jsonify(json.load(f))
+        else:
+            return jsonify({'condition': 'Unknown', 'temperature': None, 'timestamp': None})
+    except Exception:
+        logger.exception("Error loading weather")
+        return jsonify({'error': 'Internal server error'}), 500
 
+
+@app.route('/weather', methods=['POST'])
+@limiter.limit("10 per hour")
+def weather_post():
+    """Set weather status for the current session."""
+    api_key = request.headers.get('X-API-Key') or ''
+    if not (api_key and hmac.compare_digest(api_key, API_KEY)):
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    try:
+        body = request.get_json(silent=True) or {}
+
+        condition = body.get('condition', '')
+        if condition not in VALID_CONDITIONS:
+            return jsonify({'error': f'Invalid condition. Valid values: {sorted(VALID_CONDITIONS)}'}), 400
+
+        temperature = body.get('temperature')
+        if temperature is None:
+            return jsonify({'error': 'temperature is required'}), 400
         try:
-            body = request.get_json(silent=True) or {}
+            temperature = float(temperature)
+        except (TypeError, ValueError):
+            return jsonify({'error': 'temperature must be a number'}), 400
+        if not (-60 <= temperature <= 140):
+            return jsonify({'error': 'temperature out of plausible range (-60 to 140°F)'}), 400
 
-            condition = body.get('condition', '')
-            if condition not in VALID_CONDITIONS:
-                return jsonify({'error': f'Invalid condition. Valid values: {sorted(VALID_CONDITIONS)}'}), 400
+        weather_data = {
+            'condition': condition,
+            'temperature': temperature,
+            'timestamp': datetime.now(timezone.utc).isoformat()
+        }
+        with open(WEATHER_FILE, 'w') as f:
+            json.dump(weather_data, f, indent=2)
+        logger.info(f"Weather updated: {condition}, {temperature}°F")
 
-            temperature = body.get('temperature')
-            if temperature is None:
-                return jsonify({'error': 'temperature is required'}), 400
+        # Append to history for future analytics (only during live sessions)
+        live_state = load_live_mode_from_file()
+        if live_state.get('enabled'):
+            history_entry = {**weather_data, 'year': datetime.now(timezone.utc).year}
             try:
-                temperature = float(temperature)
-            except (TypeError, ValueError):
-                return jsonify({'error': 'temperature must be a number'}), 400
-            if not (-60 <= temperature <= 140):
-                return jsonify({'error': 'temperature out of plausible range (-60 to 140°F)'}), 400
+                with WEATHER_HISTORY_LOCK:
+                    try:
+                        with open(WEATHER_HISTORY_FILE, 'r') as hf:
+                            history = json.load(hf)
+                    except (FileNotFoundError, json.JSONDecodeError):
+                        history = []
+                    history.append(history_entry)
+                    with open(WEATHER_HISTORY_FILE, 'w') as hf:
+                        json.dump(history, hf, indent=2)
+            except Exception:
+                logger.warning("Failed to append weather history — non-critical")
 
-            weather_data = {
-                'condition': condition,
-                'temperature': temperature,
-                'timestamp': datetime.now(timezone.utc).isoformat()
-            }
-            with open(WEATHER_FILE, 'w') as f:
-                json.dump(weather_data, f, indent=2)
-            logger.info(f"Weather updated: {condition}, {temperature}°F")
+        return jsonify(weather_data)
+    except Exception:
+        logger.exception("Error updating weather")
+        return jsonify({'error': 'Internal server error'}), 500
 
-            # Append to history for future analytics (only during live sessions)
-            live_state = load_live_mode_from_file()
-            if live_state.get('enabled'):
-                history_entry = {**weather_data, 'year': datetime.now(timezone.utc).year}
-                try:
-                    with WEATHER_HISTORY_LOCK:
-                        try:
-                            with open(WEATHER_HISTORY_FILE, 'r') as hf:
-                                history = json.load(hf)
-                        except (FileNotFoundError, json.JSONDecodeError):
-                            history = []
-                        history.append(history_entry)
-                        with open(WEATHER_HISTORY_FILE, 'w') as hf:
-                            json.dump(history, hf, indent=2)
-                except Exception:
-                    logger.warning("Failed to append weather history — non-critical")
 
-            return jsonify(weather_data)
-        except Exception:
-            logger.exception("Error updating weather")
-            return jsonify({'error': 'Internal server error'}), 500
-
-    else:  # GET
-        try:
-            if os.path.exists(WEATHER_FILE):
-                with open(WEATHER_FILE, 'r') as f:
-                    return jsonify(json.load(f))
-            else:
-                return jsonify({'condition': 'Unknown', 'temperature': None, 'timestamp': None})
-        except Exception:
-            logger.exception("Error loading weather")
-            return jsonify({'error': 'Internal server error'}), 500
+@app.route('/counter')
+def counter_page():
+    """Phone-friendly counter page — backup for when serial hardware isn't available."""
+    return render_template('counter.html')
 
 
 def create_app():

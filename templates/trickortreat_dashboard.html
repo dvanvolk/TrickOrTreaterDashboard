@@ -41,6 +41,8 @@
             </div>
         </div>
 
+        <div id="milestoneBanner" class="milestone-banner" hidden></div>
+
         <div class="stats-grid" id="statsGrid">
             <div class="stat-card">
                 <div class="stat-number" id="totalToday">0</div>
@@ -62,6 +64,14 @@
                 <div class="stat-number" id="lastVisitor">--</div>
                 <div class="stat-label">Last Visitor</div>
             </div>
+            <div class="stat-card">
+                <div class="stat-number" id="paceVsLastYear">--</div>
+                <div class="stat-label">vs. Last Year</div>
+            </div>
+            <div class="stat-card" id="projectedCard" style="display:none;">
+                <div class="stat-number" id="projectedTotal">--</div>
+                <div class="stat-label">Projected Total</div>
+            </div>
         </div>
 
         <div class="charts-grid">
@@ -78,6 +88,12 @@
         <div class="chart-container full-width">
             <div class="chart-title">📈 Year-over-Year Comparison</div>
             <canvas id="yearComparisonChart"></canvas>
+            <div id="peakWindowDisplay" class="peak-window-display"></div>
+        </div>
+
+        <div class="chart-container full-width" style="height: 320px;">
+            <div class="chart-title">📈 Cumulative Arrivals by Year</div>
+            <canvas id="cumulativeChart"></canvas>
         </div>
 
         <div class="charts-grid">
@@ -108,6 +124,7 @@
         </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.0/dist/confetti.browser.min.js"></script>
     <script src="{{ url_for('static', filename='js/chart-helpers.js') }}"></script>
     <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
     <script>

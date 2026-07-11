@@ -179,3 +179,65 @@ body {
 .hidden {
     display: none;
 }
+
+/* Milestone banner — fixed top-center, auto-hides via JS */
+@keyframes bannerSlideIn {
+    from { opacity: 0; transform: translateX(-50%) translateY(-20px); }
+    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+@keyframes bannerSlideOut {
+    from { opacity: 1; }
+    to   { opacity: 0; }
+}
+
+.milestone-banner {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: linear-gradient(135deg, #2d1000, #1a0a2e);
+    border: 2px solid var(--accent);
+    border-radius: 12px;
+    padding: 14px 28px;
+    font-size: 1.4em;
+    font-family: var(--font-display);
+    color: var(--accent);
+    text-align: center;
+    z-index: 9999;
+    box-shadow: 0 4px 20px rgba(255, 107, 53, 0.4);
+    animation: bannerSlideIn 0.4s ease-out;
+    pointer-events: none;
+}
+
+.milestone-banner.hiding {
+    animation: bannerSlideOut 0.6s ease-in forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .milestone-banner { animation: none; }
+    .milestone-banner.hiding { display: none; }
+}
+
+/* Peak windows display below year comparison chart */
+.peak-window-display {
+    margin-top: 12px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+}
+
+.peak-window-display .peak-chip {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 20px;
+    padding: 4px 12px;
+    font-size: 0.82em;
+    color: rgba(255, 255, 255, 0.85);
+    white-space: nowrap;
+}
+
+/* Pace vs last year color coding */
+.pace-positive { color: var(--accent-green); }
+.pace-negative { color: #f87171; }
+.pace-neutral  { color: rgba(255, 255, 255, 0.6); }

@@ -9,6 +9,10 @@ let _currentDataSnapshot = null;
 let _detailedHistoricalSnapshot = null;
 // Summary data saved when live mode is disabled
 let savedSummary = null;
+// Milestone tracking
+let _previousCount = 0;
+let _allTimeHigh = 0;
+const MILESTONES = [25, 50, 75, 100, 150, 200];
 let countdownTarget = null;
 let isHalloween = false;
 
@@ -115,6 +119,9 @@ async function loadHistoricalData() {
         const response = await fetch('/historical_data');
         historicalData = await response.json();
         updateYearComparisonChart();
+        computeAllTimeHigh();
+        computePeakWindows();
+        updateCumulativeChart();
     } catch (error) {
         console.error('Error loading historical data:', error);
     }
@@ -381,6 +388,7 @@ function setupCharts() {
     setupPeakActivityChart();
     setupDetailedYearChart();
     setupDetailedScatterChart();
+    setupCumulativeChart();
 }
 
 function setupDetailedScatterChart() {
@@ -505,6 +513,8 @@ async function loadDetailedData() {
         populateYearSelector();
         updateDetailedYearChart();
         updateDetailedScatterChart();
+        computePeakWindows();
+        updateCumulativeChart();
     } catch (err) {
         console.error('Error loading detailed historical data:', err);
     }
@@ -1069,6 +1079,10 @@ function updateStats() {
         const lastTime = formatTime(localDate, { seconds: true });
         document.getElementById('lastVisitor').textContent = lastTime;
     }
+
+    checkMilestones(totalToday);
+    updatePaceVsLastYear(totalToday);
+    updateProjectedTotal(totalToday);
 }
 
 function updateYearStatsChart() {
@@ -1113,6 +1127,292 @@ function updatePeakActivityChart() {
     charts.peakActivity.data.datasets[0].data = data;
     charts.peakActivity.update();
 }
+
+// ── Milestone moments (#11) ────────────────────────────────────────────────
+
+function computeAllTimeHigh() {
+    if (!historicalData) return;
+    let high = 0;
+    Object.values(historicalData).forEach(yearData => {
+        const total = Object.values(yearData).reduce((s, d) => s + (d.total || 0), 0);
+        if (total > high) high = total;
+    });
+    _allTimeHigh = high;
+}
+
+function showMilestoneBanner(message) {
+    const banner = document.getElementById('milestoneBanner');
+    if (!banner) return;
+    banner.textContent = message;
+    banner.hidden = false;
+    banner.classList.remove('hiding');
+    clearTimeout(banner._hideTimer);
+    banner._hideTimer = setTimeout(() => {
+        banner.classList.add('hiding');
+        setTimeout(() => { banner.hidden = true; banner.classList.remove('hiding'); }, 600);
+    }, 6000);
+}
+
+function checkMilestones(newCount) {
+    if (newCount <= _previousCount) {
+        _previousCount = newCount;
+        return;
+    }
+    for (const m of MILESTONES) {
+        if (_previousCount < m && newCount >= m) {
+            if (typeof confetti === 'function') {
+                confetti({ particleCount: 120, spread: 70, origin: { y: 0.6 } });
+            }
+            showMilestoneBanner(`🎃 Visitor #${m}!`);
+            break;
+        }
+    }
+    if (_allTimeHigh > 0 && _previousCount < _allTimeHigh && newCount > _allTimeHigh) {
+        if (typeof confetti === 'function') {
+            confetti({ particleCount: 200, spread: 90, origin: { y: 0.5 } });
+        }
+        showMilestoneBanner(`🏆 New Record! ${newCount} visitors and counting!`);
+    }
+    _previousCount = newCount;
+}
+
+// ── Live pace vs. last year (#2) ───────────────────────────────────────────
+
+function updatePaceVsLastYear(currentTotal) {
+    const el = document.getElementById('paceVsLastYear');
+    if (!el) return;
+
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const lastYear = currentYear - 1;
+
+    // Minutes since 6 PM Eastern today
+    const sixPmToday = new Date(now);
+    sixPmToday.setHours(18, 0, 0, 0);
+    const elapsedMs = now - sixPmToday;
+    if (elapsedMs <= 0) { el.textContent = '--'; el.className = 'stat-number'; return; }
+    const elapsedMin = elapsedMs / 60000;
+
+    let lastYearTotal = 0;
+    const lastYearStr = String(lastYear);
+
+    if (detailedHistorical && detailedHistorical[lastYearStr]) {
+        // Per-entry data: count entries from last year's Oct 31 within the same elapsed window
+        const cutoff = new Date(`${lastYear}-10-31T18:00:00`);
+        const cutoffEnd = new Date(cutoff.getTime() + elapsedMs);
+        for (const entry of detailedHistorical[lastYearStr]) {
+            const ts = new Date(entry.timestamp);
+            if (ts >= cutoff && ts <= cutoffEnd) lastYearTotal += (entry.count || 1);
+        }
+    } else if (historicalData && historicalData[lastYearStr]) {
+        // 15-min bucket data: sum slots up to the elapsed time slot
+        const cutoffSlot = new Date(new Date(`${lastYear}-10-31T18:00:00`).getTime() + elapsedMs);
+        const cutoffHHMM = `${String(cutoffSlot.getHours()).padStart(2,'0')}:${String(cutoffSlot.getMinutes()).padStart(2,'0')}`;
+        Object.entries(historicalData[lastYearStr]).forEach(([slot, d]) => {
+            if (slot <= cutoffHHMM) lastYearTotal += (d.total || 0);
+        });
+    } else {
+        el.textContent = '--';
+        el.className = 'stat-number pace-neutral';
+        return;
+    }
+
+    const delta = currentTotal - lastYearTotal;
+    if (delta > 0) {
+        el.textContent = `+${delta} vs. ${lastYear}`;
+        el.className = 'stat-number pace-positive';
+    } else if (delta < 0) {
+        el.textContent = `${delta} vs. ${lastYear}`;
+        el.className = 'stat-number pace-negative';
+    } else {
+        el.textContent = `even vs. ${lastYear}`;
+        el.className = 'stat-number pace-neutral';
+    }
+}
+
+// ── Busiest 15-min stat (#3) ───────────────────────────────────────────────
+
+function computePeakWindows() {
+    const display = document.getElementById('peakWindowDisplay');
+    if (!display) return;
+
+    const peaks = {};
+
+    // From historicalData (all years, 15-min buckets)
+    if (historicalData) {
+        Object.entries(historicalData).forEach(([year, yearData]) => {
+            let bestSlot = null, bestTotal = 0;
+            Object.entries(yearData).forEach(([slot, d]) => {
+                if ((d.total || 0) > bestTotal) { bestTotal = d.total; bestSlot = slot; }
+            });
+            if (bestSlot) peaks[year] = { slot: bestSlot, count: bestTotal };
+        });
+    }
+
+    // Override with per-entry data for years that have it (more precise)
+    if (detailedHistorical) {
+        Object.entries(detailedHistorical).forEach(([year, entries]) => {
+            const buckets = {};
+            entries.forEach(e => {
+                if (!e.timestamp) return;
+                const d = new Date(e.timestamp);
+                const min15 = Math.floor(d.getMinutes() / 15) * 15;
+                const key = `${String(d.getHours()).padStart(2,'0')}:${String(min15).padStart(2,'0')}`;
+                buckets[key] = (buckets[key] || 0) + (e.count || 1);
+            });
+            let bestSlot = null, bestCount = 0;
+            Object.entries(buckets).forEach(([k, v]) => { if (v > bestCount) { bestCount = v; bestSlot = k; } });
+            if (bestSlot) peaks[year] = { slot: bestSlot, count: bestCount };
+        });
+    }
+
+    const years = Object.keys(peaks).sort();
+    if (years.length === 0) { display.innerHTML = ''; return; }
+
+    display.innerHTML = years.map(year => {
+        const { slot, count } = peaks[year];
+        const [hh, mm] = slot.split(':');
+        const start = new Date(); start.setHours(parseInt(hh), parseInt(mm), 0, 0);
+        const end = new Date(start.getTime() + 15 * 60 * 1000);
+        const range = `${formatTime(start)}–${formatTime(end)}`;
+        return `<span class="peak-chip">${year}: ${count} visitors · ${range}</span>`;
+    }).join('');
+}
+
+// ── Projected total (#7) ───────────────────────────────────────────────────
+
+function updateProjectedTotal(currentTotal) {
+    const card = document.getElementById('projectedCard');
+    const el = document.getElementById('projectedTotal');
+    if (!card || !el) return;
+
+    const now = new Date();
+    const sixPm = new Date(now); sixPm.setHours(18, 0, 0, 0);
+    const tenPm = new Date(now); tenPm.setHours(22, 0, 0, 0);
+    const totalPossibleMs = tenPm - sixPm;
+    const elapsedMs = now - sixPm;
+
+    if (currentTotal < 3 || elapsedMs <= 0 || now >= tenPm) {
+        card.style.display = 'none';
+        return;
+    }
+
+    const projected = Math.round((currentTotal / elapsedMs) * totalPossibleMs);
+    el.textContent = `~${projected}`;
+    card.style.display = '';
+}
+
+// ── Cumulative arrivals chart (#1) ─────────────────────────────────────────
+
+function setupCumulativeChart() {
+    const ctx = document.getElementById('cumulativeChart');
+    if (!ctx) return;
+    charts.cumulative = new Chart(ctx, {
+        type: 'line',
+        data: { datasets: [] },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            parsing: false,
+            scales: {
+                x: {
+                    type: 'linear',
+                    title: { display: true, text: 'Time of Evening' },
+                    ticks: {
+                        callback: val => {
+                            const h = Math.floor(val / 60) + 18;
+                            const m = String(val % 60).padStart(2, '0');
+                            const ampm = h >= 12 ? 'PM' : 'AM';
+                            const h12 = h > 12 ? h - 12 : h;
+                            return `${h12}:${m} ${ampm}`;
+                        },
+                        maxTicksLimit: 9,
+                    }
+                },
+                y: {
+                    title: { display: true, text: 'Cumulative Visitors' },
+                    beginAtZero: true
+                }
+            },
+            plugins: {
+                tooltip: {
+                    callbacks: {
+                        title: items => {
+                            const val = items[0].parsed.x;
+                            const h = Math.floor(val / 60) + 18;
+                            const m = String(val % 60).padStart(2, '0');
+                            const ampm = h >= 12 ? 'PM' : 'AM';
+                            return `${h > 12 ? h - 12 : h}:${m} ${ampm}`;
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+function updateCumulativeChart() {
+    if (!charts.cumulative) return;
+
+    const datasets = [];
+    const allYears = new Set([
+        ...Object.keys(historicalData || {}),
+        ...Object.keys(detailedHistorical || {})
+    ]);
+
+    allYears.forEach(year => {
+        const points = [];
+
+        if (detailedHistorical && detailedHistorical[year]) {
+            // Per-entry data: each entry → a point (minutes-since-6pm, running total)
+            const entries = [...detailedHistorical[year]].sort((a, b) =>
+                new Date(a.timestamp) - new Date(b.timestamp)
+            );
+            let running = 0;
+            entries.forEach(e => {
+                if (!e.timestamp) return;
+                const d = new Date(e.timestamp);
+                const minSince6pm = (d.getHours() - 18) * 60 + d.getMinutes() + d.getSeconds() / 60;
+                if (minSince6pm < -60 || minSince6pm > 360) return;
+                running += (e.count || 1);
+                points.push({ x: minSince6pm, y: running });
+            });
+        } else if (historicalData && historicalData[year]) {
+            // 15-min bucket data: sorted slots → stepped cumulative
+            const slots = Object.entries(historicalData[year])
+                .map(([slot, d]) => ({ slot, total: d.total || 0 }))
+                .sort((a, b) => a.slot.localeCompare(b.slot));
+            let running = 0;
+            slots.forEach(({ slot, total }) => {
+                const [hh, mm] = slot.split(':');
+                const minSince6pm = (parseInt(hh) - 18) * 60 + parseInt(mm);
+                if (minSince6pm < -60 || minSince6pm > 360) return;
+                running += total;
+                points.push({ x: minSince6pm, y: running });
+            });
+        }
+
+        if (points.length === 0) return;
+        const color = getYearColor(year);
+        datasets.push({
+            label: String(year),
+            data: points,
+            borderColor: color,
+            backgroundColor: color + '20',
+            borderWidth: 2,
+            pointRadius: 2,
+            pointHoverRadius: 5,
+            tension: 0.3,
+            fill: false,
+        });
+    });
+
+    datasets.sort((a, b) => a.label.localeCompare(b.label));
+    charts.cumulative.data.datasets = datasets;
+    charts.cumulative.update();
+}
+
+// ── Polling intervals ──────────────────────────────────────────────────────
 
 // Auto-refresh trick-or-treater data when live (2-second poll)
 setInterval(() => {
