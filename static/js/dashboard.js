@@ -1307,27 +1307,28 @@ function updateProjectedTotal(currentTotal) {
 function setupCumulativeChart() {
     const ctx = document.getElementById('cumulativeChart');
     if (!ctx) return;
+
+    function minsToLabel(val) {
+        if (typeof val !== 'number' || !isFinite(val)) return '';
+        const h = Math.floor(val / 60) + 18;
+        const m = String(Math.round(val % 60)).padStart(2, '0');
+        const ampm = h >= 12 ? 'PM' : 'AM';
+        const h12 = h > 12 ? h - 12 : (h === 0 ? 12 : h);
+        return `${h12}:${m} ${ampm}`;
+    }
+
     charts.cumulative = new Chart(ctx, {
-        type: 'line',
+        type: 'scatter',
         data: { datasets: [] },
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            parsing: false,
+            datasets: { scatter: { showLine: true } },
             scales: {
                 x: {
                     type: 'linear',
                     title: { display: true, text: 'Time of Evening' },
-                    ticks: {
-                        callback: val => {
-                            const h = Math.floor(val / 60) + 18;
-                            const m = String(val % 60).padStart(2, '0');
-                            const ampm = h >= 12 ? 'PM' : 'AM';
-                            const h12 = h > 12 ? h - 12 : h;
-                            return `${h12}:${m} ${ampm}`;
-                        },
-                        maxTicksLimit: 9,
-                    }
+                    ticks: { callback: minsToLabel, maxTicksLimit: 9 }
                 },
                 y: {
                     title: { display: true, text: 'Cumulative Visitors' },
@@ -1337,13 +1338,7 @@ function setupCumulativeChart() {
             plugins: {
                 tooltip: {
                     callbacks: {
-                        title: items => {
-                            const val = items[0].parsed.x;
-                            const h = Math.floor(val / 60) + 18;
-                            const m = String(val % 60).padStart(2, '0');
-                            const ampm = h >= 12 ? 'PM' : 'AM';
-                            return `${h > 12 ? h - 12 : h}:${m} ${ampm}`;
-                        }
+                        title: items => items.length ? minsToLabel(items[0].parsed.x) : ''
                     }
                 }
             }
@@ -1395,6 +1390,7 @@ function updateCumulativeChart() {
         if (points.length === 0) return;
         const color = getYearColor(year);
         datasets.push({
+            showLine: true,
             label: String(year),
             data: points,
             borderColor: color,
@@ -1403,7 +1399,6 @@ function updateCumulativeChart() {
             pointRadius: 2,
             pointHoverRadius: 5,
             tension: 0.3,
-            fill: false,
         });
     });
 
