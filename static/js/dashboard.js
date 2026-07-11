@@ -409,9 +409,12 @@ function setupDetailedScatterChart() {
             scales: {
                 x: {
                     type: 'linear',
+                    min: 0,
+                    max: 1440,
                     title: { display: true, text: 'Time of Day' },
                     ticks: {
                         callback: function(value, index, ticks) {
+                            if (typeof value !== 'number' || !isFinite(value)) return '';
                             const hh = Math.floor(value / 60) % 24;
                             const mm = Math.round(value % 60);
                             const dt = new Date();
@@ -422,8 +425,8 @@ function setupDetailedScatterChart() {
                 },
                 y: {
                     display: false,
-                    suggestedMin: -1,
-                    suggestedMax: 3
+                    min: -1,
+                    max: 3
                 }
             },
             plugins: {
@@ -468,7 +471,8 @@ function setupDetailedYearChart() {
                 },
                 y: {
                     beginAtZero: true,
-                    title: { display: true, text: 'Visitors (per minute)' }
+                    title: { display: true, text: 'Visitors (per minute)' },
+                    ticks: { callback: v => Number.isFinite(v) ? v : '' }
                 }
             },
             plugins: {
@@ -756,7 +760,8 @@ function setupYearComparisonChart() {
                     grid: {
                         display: true,
                         color: 'rgba(0,0,0,0.1)'
-                    }
+                    },
+                    ticks: { callback: v => Number.isFinite(v) ? v : '' }
                 }
             },
             plugins: {
@@ -830,7 +835,8 @@ function setupYearStatsChart() {
                     title: {
                         display: true,
                         text: 'Total Count'
-                    }
+                    },
+                    ticks: { callback: v => Number.isFinite(v) ? v : '' }
                 },
                 x: {
                     title: {
@@ -1327,10 +1333,15 @@ function setupCumulativeChart() {
             scales: {
                 x: {
                     type: 'linear',
+                    min: -60,
+                    max: 360,
                     title: { display: true, text: 'Time of Evening' },
                     ticks: { callback: minsToLabel, maxTicksLimit: 9 }
                 },
                 y: {
+                    type: 'linear',
+                    min: 0,
+                    max: 1,
                     title: { display: true, text: 'Cumulative Visitors' },
                     beginAtZero: true
                 }
@@ -1403,6 +1414,13 @@ function updateCumulativeChart() {
     });
 
     datasets.sort((a, b) => a.label.localeCompare(b.label));
+
+    // Chart.js 3.9.1 requires an explicit max on linear y-axis (crashes otherwise on init).
+    // Recompute it each update so the axis scales to actual data, not the init placeholder.
+    let dataMax = 1;
+    datasets.forEach(ds => ds.data.forEach(p => { if (p.y > dataMax) dataMax = p.y; }));
+    charts.cumulative.options.scales.y.max = Math.ceil(dataMax * 1.1);
+
     charts.cumulative.data.datasets = datasets;
     charts.cumulative.update();
 }
