@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>🎃 Counter</title>
+    <style>
+        :root {
+            --bg: #0d0d1a;
+            --accent: #ff6b35;
+            --teal: #4ecdc4;
+            --green: #4ade80;
+            --red: #f87171;
+            --card: rgba(255,255,255,0.08);
+            --border: rgba(255,255,255,0.15);
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        body {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #0d0d1a, #1a0a2e, #2d1000);
+            color: white;
+            min-height: 100dvh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            gap: 20px;
+        }
+        h1 { font-size: 1.5em; color: var(--accent); text-align: center; }
+
+        /* Key entry form */
+        #keyForm {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            width: 100%;
+            max-width: 360px;
+            text-align: center;
+        }
+        #keyForm label { font-size: 0.9em; opacity: 0.8; }
+        #keyInput {
+            background: rgba(255,255,255,0.1);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: white;
+            font-size: 1em;
+            padding: 10px 14px;
+            width: 100%;
+        }
+        #keyInput:focus { outline: 2px solid var(--accent); }
+        #keySubmit {
+            background: var(--accent);
+            border: none;
+            border-radius: 8px;
+            color: white;
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: bold;
+            padding: 12px;
+        }
+
+        /* Counter display */
+        #counterDisplay {
+            text-align: center;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            gap: 24px;
+            width: 100%;
+            max-width: 360px;
+        }
+        #countNumber {
+            font-size: 6em;
+            font-weight: bold;
+            color: var(--accent);
+            line-height: 1;
+        }
+        #countLabel { font-size: 1em; opacity: 0.7; }
+
+        #testBadge {
+            display: none;
+            background: rgba(255, 200, 0, 0.2);
+            border: 1px solid rgba(255, 200, 0, 0.5);
+            border-radius: 20px;
+            padding: 4px 14px;
+            font-size: 0.8em;
+            color: #fcd34d;
+        }
+
+        /* Buttons */
+        .btn-row { display: flex; gap: 16px; width: 100%; }
+        #addBtn {
+            background: var(--accent);
+            border: none;
+            border-radius: 16px;
+            color: white;
+            cursor: pointer;
+            flex: 1;
+            font-size: 4em;
+            font-weight: bold;
+            padding: 24px 0;
+            transition: transform 0.1s, opacity 0.1s;
+            user-select: none;
+        }
+        #addBtn:active { transform: scale(0.95); opacity: 0.85; }
+        #undoBtn {
+            background: rgba(255,255,255,0.1);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            color: white;
+            cursor: pointer;
+            font-size: 1.8em;
+            padding: 24px 20px;
+            transition: transform 0.1s, opacity 0.1s;
+            user-select: none;
+        }
+        #undoBtn:active { transform: scale(0.95); opacity: 0.85; }
+
+        /* Status toast */
+        #statusMsg {
+            font-size: 1.1em;
+            min-height: 1.5em;
+            text-align: center;
+            transition: opacity 0.3s;
+        }
+        .status-ok  { color: var(--green); }
+        .status-err { color: var(--red); }
+
+        /* Logout link */
+        #logoutBtn {
+            background: none;
+            border: none;
+            color: rgba(255,255,255,0.4);
+            cursor: pointer;
+            font-size: 0.8em;
+            margin-top: 8px;
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <h1>🎃 Trick-or-Treater Counter</h1>
+
+    <form id="keyForm">
+        <label for="keyInput">Enter API Key to start counting</label>
+        <input type="password" id="keyInput" placeholder="API key" autocomplete="current-password">
+        <button type="submit" id="keySubmit">Unlock</button>
+    </form>
+
+    <div id="counterDisplay">
+        <div id="testBadge">⚠️ TEST MODE</div>
+        <div>
+            <div id="countNumber">0</div>
+            <div id="countLabel">visitors tonight</div>
+        </div>
+        <div class="btn-row">
+            <button id="addBtn" onclick="addOne()">+</button>
+            <button id="undoBtn" onclick="undoLast()">↩</button>
+        </div>
+        <div id="statusMsg"></div>
+        <button id="logoutBtn" onclick="logout()">change key</button>
+    </div>
+
+    <script>
+        const KEY_STORE = 'counter_api_key';
+        const params = new URLSearchParams(location.search);
+        const TEST_MODE = params.get('test') === '1';
+
+        function getKey() { return sessionStorage.getItem(KEY_STORE); }
+
+        function showStatus(msg, isError) {
+            const el = document.getElementById('statusMsg');
+            el.textContent = msg;
+            el.className = isError ? 'status-err' : 'status-ok';
+            clearTimeout(el._t);
+            el._t = setTimeout(() => { el.textContent = ''; el.className = ''; }, 2500);
+        }
+
+        async function refreshCount() {
+            try {
+                const r = await fetch('/current_data');
+                if (!r.ok) return;
+                const data = await r.json();
+                const total = (data || []).reduce((s, e) => s + (e.count || 0), 0);
+                document.getElementById('countNumber').textContent = total;
+            } catch (_) {}
+        }
+
+        async function addOne() {
+            const endpoint = TEST_MODE ? '/add_test_entry' : '/add_trick_or_treater';
+            try {
+                const r = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'X-API-Key': getKey() }
+                });
+                if (r.status === 401) { showStatus('Wrong key — please re-enter', true); logout(); return; }
+                if (!r.ok) { showStatus('Error — try again', true); return; }
+                showStatus(TEST_MODE ? '✓ Test entry added' : '✓ Added!', false);
+                refreshCount();
+            } catch (_) { showStatus('Network error', true); }
+        }
+
+        async function undoLast() {
+            try {
+                const r = await fetch('/undo_last_entry', {
+                    method: 'POST',
+                    headers: { 'X-API-Key': getKey() }
+                });
+                if (r.status === 401) { showStatus('Wrong key', true); logout(); return; }
+                if (!r.ok) { showStatus('Nothing to undo', true); return; }
+                showStatus('↩ Undone', false);
+                refreshCount();
+            } catch (_) { showStatus('Network error', true); }
+        }
+
+        function logout() {
+            sessionStorage.removeItem(KEY_STORE);
+            document.getElementById('counterDisplay').style.display = 'none';
+            document.getElementById('keyForm').style.display = 'flex';
+            document.getElementById('keyInput').value = '';
+        }
+
+        function unlock(key) {
+            sessionStorage.setItem(KEY_STORE, key);
+            document.getElementById('keyForm').style.display = 'none';
+            const display = document.getElementById('counterDisplay');
+            display.style.display = 'flex';
+            if (TEST_MODE) document.getElementById('testBadge').style.display = 'block';
+            refreshCount();
+        }
+
+        document.getElementById('keyForm').addEventListener('submit', e => {
+            e.preventDefault();
+            const key = document.getElementById('keyInput').value.trim();
+            if (key) unlock(key);
+        });
+
+        // Auto-unlock if key already in session
+        const existingKey = getKey();
+        if (existingKey) unlock(existingKey);
+
+        // Refresh count every 3 seconds
+        setInterval(refreshCount, 3000);
+    </script>
+</body>
+</html>
