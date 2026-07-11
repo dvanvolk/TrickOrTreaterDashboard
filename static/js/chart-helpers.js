@@ -61,6 +61,6 @@ function applyChartDefaults() {
     Chart.defaults.plugins.tooltip.bodyColor = 'rgba(255,255,255,0.9)';
     Chart.defaults.plugins.tooltip.borderColor = 'rgba(255,107,53,0.35)';
     Chart.defaults.plugins.tooltip.borderWidth = 1;
-    Chart.defaults.scale.grid = { color: 'rgba(255,255,255,0.1)' };
-    Chart.defaults.scale.ticks = { color: 'rgba(255,255,255,0.75)' };
+    Chart.defaults.scale.grid.color = 'rgba(255,255,255,0.1)';
+    Chart.defaults.scale.ticks.color = 'rgba(255,255,255,0.75)';
 }
