@@ -1,3 +1,14 @@
+"""Generate social-media-ready graphs from live dashboard data.
+
+Run locally (on Windows) at the end of Halloween night. Reads credentials from
+local_application/config.json and queries the live API — no local DB access needed.
+
+Outputs two PNGs in the project root:
+  trickortreat_by_year.png  — all-time year-over-year bar chart
+  trickortreat_tonight.png  — 15-minute interval timeline for the current evening
+
+Run: python simple_grpah.py
+"""
 import json
 import os
 import requests
@@ -44,17 +55,20 @@ def apply_dark_style(fig, ax):
 # --- Graph A: Year-over-year totals ---
 
 def graph_year_totals():
-    historical = fetch('/historical_data')
+    historical = fetch('/historical_data')  # {year: {time_slot: {total, average, count}}}
     current_entries = fetch('/current_data')
 
     year_totals = defaultdict(int)
-    for entry in historical:
-        year_totals[entry['year']] += entry['count']
+    for year, slots in historical.items():
+        for slot in slots.values():
+            year_totals[int(year)] += slot['total']
 
+    # Add current year from raw events if it hasn't been archived yet
     current_year = datetime.now().year
-    for entry in current_entries:
-        if not entry.get('test'):
-            year_totals[current_year] += entry.get('count', 1)
+    if str(current_year) not in historical:
+        for entry in current_entries:
+            if not entry.get('test'):
+                year_totals[current_year] += entry.get('count', 1)
 
     years = sorted(year_totals.keys())
     counts = [year_totals[y] for y in years]

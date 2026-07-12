@@ -1,7 +1,12 @@
-# app.py - Remote server version
-"""
-Flask app for remote dashboard server
-Receives data from local serial monitor via API
+"""Flask server for the Trick-or-Treater Dashboard.
+
+Runs on a remote host (Docker + Cloudflare tunnel). Owns all persistent state:
+- Stores visitor events in SQLite (data/dashboard.db via db.py)
+- Serves the single-page dashboard and all API endpoints
+- Tracks live mode, weather, and 15-min aggregated historical data
+- All mutating endpoints require X-API-Key; rate-limited via flask-limiter
+
+Run: python app.py  (dev)  |  gunicorn -w 4 -b 0.0.0.0:8000 'app:create_app()'  (prod)
 """
 
 from flask import Flask, render_template, jsonify, request
