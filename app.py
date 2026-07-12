@@ -17,6 +17,8 @@ from zoneinfo import ZoneInfo
 from typing import List, Dict, Any
 import logging
 
+from db import get_db, init_db, teardown_db, row_to_event_dict
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -27,14 +29,9 @@ API_KEY = os.environ.get('DASHBOARD_API_KEY', '')
 if not API_KEY:
     raise RuntimeError("DASHBOARD_API_KEY environment variable is not set — refusing to start")
 
-DATA_FILE = 'data/trickortreat_data.json'
-HISTORICAL_DATA_FILE = 'data/historical_data.json'
 WEATHER_FILE = os.path.join('data', 'weather.json')
 WEATHER_HISTORY_FILE = os.path.join('data', 'weather_history.json')
 
-# File locks prevent concurrent gunicorn workers from corrupting the JSON files
-DATA_LOCK = FileLock(DATA_FILE + '.lock')
-HISTORICAL_LOCK = FileLock(HISTORICAL_DATA_FILE + '.lock')
 WEATHER_HISTORY_LOCK = FileLock(WEATHER_HISTORY_FILE + '.lock')
 
 # Valid weather conditions (whitelisted to prevent stored XSS)
@@ -176,38 +173,6 @@ def require_api_key(f):
     return decorated_function
 
 
-def load_data() -> List[Dict[str, Any]]:
-    """Load current year data from file"""
-    if not os.path.exists(DATA_FILE):
-        return []
-    
-    try:
-        with open(DATA_FILE, 'r') as f:
-            return json.load(f)
-    except Exception as e:
-        logger.error(f"Error loading data: {e}")
-        return []
-
-
-def save_data(data: List[Dict[str, Any]]):
-    """Save data to file atomically (write to .tmp then rename to avoid truncating on crash)."""
-    try:
-        tmp = DATA_FILE + '.tmp'
-        with open(tmp, 'w') as f:
-            json.dump(data, f, indent=2)
-        os.replace(tmp, DATA_FILE)
-    except Exception as e:
-        logger.error(f"Error saving data: {e}")
-
-
-def modify_data(fn):
-    """Load trickortreat_data.json, apply fn(data), save — all under DATA_LOCK."""
-    with DATA_LOCK:
-        data = load_data()
-        result = fn(data)
-        save_data(data)
-        return result
-
 
 def get_elapsed_seconds() -> int:
     """Get seconds elapsed since live mode was enabled"""
@@ -347,12 +312,11 @@ def set_live():
 def get_historical_data():
     """Serve historical data grouped by year and time of day"""
     try:
-        if not os.path.exists(HISTORICAL_DATA_FILE):
-            return jsonify({})
-        
-        with open(HISTORICAL_DATA_FILE, 'r') as f:
-            data = json.load(f)
-        
+        db = get_db()
+        data = [dict(r) for r in db.execute(
+            "SELECT * FROM historical_buckets ORDER BY year, timestamp"
+        ).fetchall()]
+
         # Group data by year and time of day
         grouped_data = {}
         for entry in data:
@@ -410,25 +374,15 @@ def get_historical_data():
 def get_detailed_historical():
     """Serve detailed per-entry historical data grouped by year."""
     try:
-        if not os.path.exists(DATA_FILE):
-            return jsonify({})
-
-        with open(DATA_FILE, 'r') as f:
-            data = json.load(f)
+        db = get_db()
+        rows = db.execute("SELECT * FROM events ORDER BY timestamp").fetchall()
 
         grouped = {}
-        for entry in data:
-            year = entry.get('year')
+        for row in rows:
+            year = row['year']
             if year not in grouped:
                 grouped[year] = []
-            grouped[year].append(entry)
-
-        # Sort entries per year by timestamp
-        for year, entries in grouped.items():
-            try:
-                entries.sort(key=lambda e: e.get('timestamp'))
-            except Exception:
-                pass
+            grouped[year].append(row_to_event_dict(row))
 
         return jsonify(grouped)
     except Exception:
@@ -446,18 +400,16 @@ def handle_rate_limit(e):
 def get_current_data():
     """Serve current year's data for live updates"""
     try:
-        # Use authoritative file state to check live mode
         current = load_live_mode_from_file()
         if not current.get('enabled', False):
             return jsonify([])
-        
-        data = load_data()
-        current_year = datetime.now().year
-        current_year_data = [
-            entry for entry in data
-            if entry.get('year') == current_year and not entry.get('test', False)
-        ]
-        return jsonify(current_year_data)
+
+        db = get_db()
+        rows = db.execute(
+            "SELECT * FROM events WHERE year=? AND is_test=0 ORDER BY timestamp",
+            (datetime.now().year,)
+        ).fetchall()
+        return jsonify([row_to_event_dict(r) for r in rows])
     except Exception:
         logger.exception("Error loading current data")
         return jsonify({'error': 'Internal server error'}), 500
@@ -469,12 +421,13 @@ def get_current_data():
 def add_trick_or_treater():
     """Add a trick-or-treater count"""
     try:
-        new_entry = {
-            'timestamp': datetime.now(timezone.utc).isoformat(),
-            'count': 1,
-            'year': datetime.now().year
-        }
-        total = modify_data(lambda d: d.append(new_entry) or len(d))
+        db = get_db()
+        db.execute(
+            "INSERT INTO events (timestamp, count, year, is_test) VALUES (?,1,?,0)",
+            (datetime.now(timezone.utc).isoformat(), datetime.now().year)
+        )
+        db.commit()
+        total = db.execute("SELECT COUNT(*) FROM events").fetchone()[0]
         logger.info(f"Trick-or-treater added. Total count: {total}")
         return jsonify({'success': True, 'message': 'Trick-or-treater added', 'total_count': total})
     except Exception:
@@ -488,14 +441,16 @@ def add_trick_or_treater():
 def undo_last_entry():
     """Undo the last trick-or-treater entry"""
     try:
-        with DATA_LOCK:
-            data = load_data()
-            if not data:
-                return jsonify({'error': 'No entries to undo'}), 400
-            removed_entry = data.pop()
-            save_data(data)
-            total = len(data)
-        logger.info("Last entry removed (timestamp=%s)", removed_entry.get('timestamp'))
+        db = get_db()
+        row = db.execute(
+            "SELECT id, timestamp FROM events ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        if row is None:
+            return jsonify({'error': 'No entries to undo'}), 400
+        db.execute("DELETE FROM events WHERE id=?", (row['id'],))
+        db.commit()
+        total = db.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+        logger.info("Last entry removed (id=%s, timestamp=%s)", row['id'], row['timestamp'])
         return jsonify({'success': True, 'message': 'Last entry removed', 'total_count': total})
     except Exception:
         logger.exception("Error undoing entry")
@@ -508,13 +463,13 @@ def undo_last_entry():
 def add_test_entry():
     """Add a test trick-or-treater entry (excluded from stats and archiving)"""
     try:
-        new_entry = {
-            'timestamp': datetime.now(timezone.utc).isoformat(),
-            'count': 1,
-            'year': datetime.now().year,
-            'test': True
-        }
-        total = modify_data(lambda d: d.append(new_entry) or len(d))
+        db = get_db()
+        db.execute(
+            "INSERT INTO events (timestamp, count, year, is_test) VALUES (?,1,?,1)",
+            (datetime.now(timezone.utc).isoformat(), datetime.now().year)
+        )
+        db.commit()
+        total = db.execute("SELECT COUNT(*) FROM events").fetchone()[0]
         logger.info("Test entry added")
         return jsonify({'success': True, 'message': 'Test entry added', 'total_count': total})
     except Exception:
@@ -526,22 +481,18 @@ def add_test_entry():
 @require_api_key
 @limiter.limit("10 per hour")
 def purge_test_entries():
-    """Remove all test entries from the data file"""
+    """Remove all test entries"""
     try:
-        removed_count = [0]
-
-        def _purge(data):
-            clean = [e for e in data if not e.get('test', False)]
-            removed_count[0] = len(data) - len(clean)
-            data[:] = clean
-            return len(clean)
-
-        remaining = modify_data(_purge)
-        logger.info(f"Purged {removed_count[0]} test entries")
+        db = get_db()
+        removed = db.execute("SELECT COUNT(*) FROM events WHERE is_test=1").fetchone()[0]
+        db.execute("DELETE FROM events WHERE is_test=1")
+        db.commit()
+        remaining = db.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+        logger.info(f"Purged {removed} test entries")
         return jsonify({
             'success': True,
-            'message': f'Removed {removed_count[0]} test entries',
-            'removed': removed_count[0],
+            'message': f'Removed {removed} test entries',
+            'removed': removed,
             'remaining': remaining
         })
     except Exception:
@@ -579,12 +530,15 @@ def upload_batch():
             year = entry.get('year')
             if not isinstance(year, int) or not (2019 <= year <= 2099):
                 return jsonify({'error': 'year out of range'}), 400
-            clean_entry = {'timestamp': ts.isoformat(), 'count': count, 'year': year}
-            if entry.get('test'):
-                clean_entry['test'] = True
-            validated.append(clean_entry)
+            validated.append((ts.isoformat(), count, year, 1 if entry.get('test') else 0))
 
-        total = modify_data(lambda d: d.extend(validated) or len(d))
+        db = get_db()
+        db.executemany(
+            "INSERT INTO events (timestamp, count, year, is_test) VALUES (?,?,?,?)",
+            validated
+        )
+        db.commit()
+        total = db.execute("SELECT COUNT(*) FROM events").fetchone()[0]
         logger.info(f"Batch upload: {len(validated)} entries added")
         return jsonify({'success': True, 'message': f'{len(validated)} entries uploaded', 'total_count': total})
     except Exception:
@@ -597,61 +551,25 @@ def upload_batch():
 def get_stats():
     """Get current statistics"""
     try:
-        data = load_data()
-        if not data:
-            # Return empty stats if no data
-            current = load_live_mode_from_file()
-            return jsonify({
-                'total_count': 0,
-                'recent_count': 0,
-                'serial_connected': True,
-                'live_mode': current.get('enabled', False)
-            })
-        
+        db = get_db()
         current_year = datetime.now().year
-        current_year_data = [
-            e for e in data
-            if e.get('year') == current_year and not e.get('test', False)
-        ]
 
-        # Count recent entries (last 5 minutes)
-        recent_time_utc = datetime.now(timezone.utc) - timedelta(minutes=5)
-        recent_count = 0
-        
-        for e in current_year_data:
-            timestamp_str = e.get('timestamp')
-            if not timestamp_str:
-                continue
-                
-            try:
-                # Parse timestamp - handle multiple formats
-                if timestamp_str.endswith('Z'):
-                    # UTC with Z suffix
-                    entry_time = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
-                elif '+' in timestamp_str or timestamp_str.count('-') > 2:
-                    # Has timezone offset
-                    entry_time = datetime.fromisoformat(timestamp_str)
-                else:
-                    # No timezone info - assume UTC
-                    entry_time = datetime.fromisoformat(timestamp_str).replace(tzinfo=timezone.utc)
-                
-                # Ensure timezone-aware for comparison
-                if entry_time.tzinfo is None:
-                    entry_time = entry_time.replace(tzinfo=timezone.utc)
-                elif entry_time.tzinfo != timezone.utc:
-                    entry_time = entry_time.astimezone(timezone.utc)
-                
-                if entry_time > recent_time_utc:
-                    recent_count += 1
-                    
-            except (ValueError, AttributeError) as e:
-                logger.debug(f"Skipping entry with unparseable timestamp: {timestamp_str}, error: {e}")
-                continue
-        
-        # Get authoritative live mode state from file
+        total_count = db.execute(
+            "SELECT COUNT(*) FROM events WHERE year=? AND is_test=0",
+            (current_year,)
+        ).fetchone()[0]
+
+        # ISO 8601 text comparison is correct when all timestamps use the same
+        # offset representation (+00:00), which is guaranteed by the insert paths.
+        recent_cutoff = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+        recent_count = db.execute(
+            "SELECT COUNT(*) FROM events WHERE year=? AND is_test=0 AND timestamp > ?",
+            (current_year, recent_cutoff)
+        ).fetchone()[0]
+
         current = load_live_mode_from_file()
         return jsonify({
-            'total_count': len(current_year_data),
+            'total_count': total_count,
             'recent_count': recent_count,
             'serial_connected': True,
             'live_mode': current.get('enabled', False)
@@ -696,21 +614,22 @@ def archive_year():
         if not isinstance(year, int) or not (2019 <= year <= 2099):
             return jsonify({'error': 'year must be an integer between 2019 and 2099'}), 400
 
-        # Load raw event data; skip test entries
-        current_data = load_data()
-        year_data = [
-            e for e in current_data
-            if e.get('year') == year and not e.get('test', False)
-        ]
+        db = get_db()
 
-        if not year_data:
+        # Load raw event data from DB; skip test entries
+        rows = db.execute(
+            "SELECT timestamp, count FROM events WHERE year=? AND is_test=0",
+            (year,)
+        ).fetchall()
+
+        if not rows:
             return jsonify({'error': f'No data found for year {year}'}), 404
 
         # Group by 15-minute UTC intervals and aggregate.
         # Timestamps are stored as UTC; the display layer converts to local Eastern time.
         interval_data = {}
-        for entry in year_data:
-            timestamp_str = entry['timestamp']
+        for row in rows:
+            timestamp_str = row['timestamp']
             try:
                 if timestamp_str.endswith('Z'):
                     timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
@@ -721,36 +640,28 @@ def archive_year():
                 interval_time = timestamp.replace(minute=minutes, second=0, microsecond=0)
                 interval_key = interval_time.isoformat()
 
-                interval_data[interval_key] = interval_data.get(interval_key, 0) + entry.get('count', 1)
+                interval_data[interval_key] = interval_data.get(interval_key, 0) + row['count']
 
             except Exception as e:
                 logger.warning(f"Failed to parse timestamp {timestamp_str}: {e}")
                 continue
 
-        with HISTORICAL_LOCK:
-            if os.path.exists(HISTORICAL_DATA_FILE):
-                with open(HISTORICAL_DATA_FILE, 'r') as f:
-                    historical = json.load(f)
-            else:
-                historical = []
+        # Idempotency guard
+        existing = db.execute(
+            "SELECT COUNT(*) FROM historical_buckets WHERE year=?", (year,)
+        ).fetchone()[0]
+        if existing and not force:
+            return jsonify({
+                'error': f'Year {year} is already archived. Pass "force": true to re-archive.'
+            }), 409
+        if existing and force:
+            db.execute("DELETE FROM historical_buckets WHERE year=?", (year,))
 
-            # Idempotency guard
-            existing_years = {e['year'] for e in historical}
-            if year in existing_years and not force:
-                return jsonify({
-                    'error': f'Year {year} is already archived. Pass "force": true to re-archive.'
-                }), 409
-
-            # Drop existing entries for this year when force re-archiving
-            if year in existing_years:
-                historical = [e for e in historical if e['year'] != year]
-
-            # Append aggregated buckets to historical
-            for interval_time, count in interval_data.items():
-                historical.append({'timestamp': interval_time, 'count': count, 'year': year})
-
-            with open(HISTORICAL_DATA_FILE, 'w') as f:
-                json.dump(historical, f, indent=2)
+        db.executemany(
+            "INSERT OR IGNORE INTO historical_buckets (timestamp, count, year) VALUES (?,?,?)",
+            [(ts, count, year) for ts, count in interval_data.items()]
+        )
+        db.commit()
 
         logger.info(f"Archived {len(interval_data)} intervals for year {year}")
         return jsonify({
@@ -768,13 +679,12 @@ def archive_year():
 def get_current_year_data():
     """Get current year's data regardless of live mode status - used for summary generation"""
     try:
-        data = load_data()
-        current_year = datetime.now().year
-        current_year_data = [
-            entry for entry in data
-            if entry.get('year') == current_year and not entry.get('test', False)
-        ]
-        return jsonify(current_year_data)
+        db = get_db()
+        rows = db.execute(
+            "SELECT * FROM events WHERE year=? AND is_test=0 ORDER BY timestamp",
+            (datetime.now().year,)
+        ).fetchall()
+        return jsonify([row_to_event_dict(r) for r in rows])
     except Exception:
         logger.exception("Error loading current year data")
         return jsonify({'error': 'Internal server error'}), 500
@@ -851,6 +761,31 @@ def weather_post():
         return jsonify({'error': 'Internal server error'}), 500
 
 
+@app.route('/export_json')
+@require_api_key
+@limiter.limit("10 per hour")
+def export_json():
+    """Export both DB tables as JSON — useful for backups."""
+    try:
+        db = get_db()
+        events = [row_to_event_dict(r) for r in
+                  db.execute("SELECT * FROM events ORDER BY id").fetchall()]
+        buckets = [
+            {'timestamp': r['timestamp'], 'count': r['count'], 'year': r['year']}
+            for r in db.execute(
+                "SELECT * FROM historical_buckets ORDER BY year, timestamp"
+            ).fetchall()
+        ]
+        return jsonify({
+            'events': events,
+            'historical_buckets': buckets,
+            'exported_at': datetime.now(timezone.utc).isoformat()
+        })
+    except Exception:
+        logger.exception("Error exporting JSON")
+        return jsonify({'error': 'Internal server error'}), 500
+
+
 @app.route('/counter')
 def counter_page():
     """Phone-friendly counter page — backup for when serial hardware isn't available."""
@@ -860,8 +795,9 @@ def counter_page():
 def create_app():
     """Factory function to create the Flask app instance.
     This is useful for gunicorn and other WSGI servers."""
-    # Ensure live mode is initialized
     initialize_live_mode()
+    init_db()
+    app.teardown_appcontext(teardown_db)
     return app
 
 if __name__ == '__main__':
