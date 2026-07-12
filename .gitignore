@@ -4,5 +4,6 @@ __pycache__/
 *.pyo
 .venv/
 data/
+!data/dashboard_backup.sql
 .DS_Store
 local_application/config.json
