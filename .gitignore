@@ -3,7 +3,7 @@ __pycache__/
 *.pyc
 *.pyo
 .venv/
-data/
+data/*
 !data/dashboard_backup.sql
 .DS_Store
 local_application/config.json
