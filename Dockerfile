@@ -15,6 +15,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy all necessary application files
 COPY app.py .
+COPY db.py .
 COPY live_control.py .
 COPY local_application/ local_application/
 COPY templates/ templates/
