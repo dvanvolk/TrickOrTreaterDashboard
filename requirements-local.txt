@@ -1,0 +1,4 @@
+pyserial
+schedule
+requests
+python-dotenv

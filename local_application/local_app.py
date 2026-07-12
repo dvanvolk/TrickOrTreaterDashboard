@@ -28,12 +28,10 @@ load_dotenv()
 # (e.g. `python local_app.py -h`) from the `local_application` folder.
 try:
     from .local_serial_monitor import LocalSerialMonitor
-    from .dashboard_serial_integration import DashboardSerialIntegration
     from .fetch_weather_api import fetch_weather, update_dashboard_weather
 except Exception:
     # Fallback for direct script execution
     from local_serial_monitor import LocalSerialMonitor
-    from dashboard_serial_integration import DashboardSerialIntegration
     from fetch_weather_api import fetch_weather, update_dashboard_weather
 
 LOGGER = logging.getLogger("local_app")
@@ -48,8 +46,6 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--api-url", help="Dashboard API base URL")
     p.add_argument("--api-key", help="Dashboard API key")
     p.add_argument("--baudrate", type=int)
-    p.add_argument("--mode", choices=["monitor", "integration"],
-                   help="Run mode: 'monitor' uses LocalSerialMonitor (sends API calls). 'integration' uses DashboardSerialIntegration (local JSON integration).")
     p.add_argument("--test-mode", action="store_true", default=False,
                    help="Send test entries instead of real counts (excludes from stats and archiving)")
     return p.parse_args()
@@ -152,7 +148,6 @@ def main() -> int:
     cfg['api_url'] = config.get('api_url') or config.get('base_url')
     cfg['api_key'] = config.get('api_key') or config.get('apiKey')
     cfg['baudrate'] = config.get('baudrate') or config.get('baud_rate')
-    cfg['mode'] = config.get('mode')
     cfg['test_mode'] = config.get('test_mode', False)
 
     # Determine final runtime values with precedence: CLI > config.json > env > hardcoded default
@@ -160,10 +155,9 @@ def main() -> int:
     api_url = args.api_url or cfg.get('api_url') or os.environ.get('DASHBOARD_API_URL', 'https://yourdomain.com')
     api_key = args.api_key or cfg.get('api_key') or os.environ.get('DASHBOARD_API_KEY', '')
     baudrate = args.baudrate or cfg.get('baudrate') or int(os.environ.get('SERIAL_BAUD', '115200'))
-    mode = args.mode or cfg.get('mode') or os.environ.get('LOCAL_APP_MODE', 'monitor')
     test_mode = args.test_mode or cfg.get('test_mode') or (os.environ.get('TEST_MODE', '').lower() in ('1', 'true', 'yes'))
 
-    LOGGER.info("Starting local_app in '%s' mode", mode)
+    LOGGER.info("Starting local_app")
 
     # Initialize API client (used by LocalSerialMonitor).
     # Import here to avoid requiring network-related dependencies when
@@ -198,33 +192,11 @@ def main() -> int:
 
     weather_thread = None
     try:
-        # Start weather updates in both monitor and integration modes
         weather_thread = start_weather_updates(api_client, config, stop_event)
-        
-        if mode == "monitor":
-            monitor = LocalSerialMonitor(port=port, api_client=api_client, baudrate=baudrate, local_backup=True, test_mode=test_mode)
-            # Try to sync any pending data left from previous runs
-            monitor.sync_pending_data()
 
-            # Run until stopped
-            monitor.run()
-
-        else:  # integration mode (local JSON file + radio interface)
-            # DashboardSerialIntegration currently writes to local JSON when buttons pressed.
-            # If you want to forward those events to the remote API, extend DashboardSerialIntegration
-            # to accept an api_client and call it from __count_btn_callback / __undo_btn_callback.
-            integration = DashboardSerialIntegration(serial_port=port)
-            LOGGER.info("Dashboard serial integration running (press Ctrl+C to exit)")
-
-            # Wait until signaled. Use a portable sleep loop for Windows compatibility.
-            try:
-                while not should_stop:
-                    time.sleep(0.5)
-                # If a monitor was created elsewhere, request it to exit.
-                if monitor is not None:
-                    monitor.exit_app()
-            finally:
-                integration.cleanup()
+        monitor = LocalSerialMonitor(port=port, api_client=api_client, baudrate=baudrate, local_backup=True, test_mode=test_mode)
+        monitor.sync_pending_data()
+        monitor.run()
 
     except KeyboardInterrupt:
         LOGGER.info("Interrupted by user")

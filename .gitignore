@@ -5,3 +5,4 @@ __pycache__/
 .venv/
 data/
 .DS_Store
+local_application/config.json
