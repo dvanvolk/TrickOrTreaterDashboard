@@ -1338,7 +1338,8 @@ function setupCumulativeChart() {
             plugins: {
                 tooltip: {
                     callbacks: {
-                        title: items => items.length ? minsToLabel(items[0].parsed.x) : ''
+                        title: items => items.length ? minsToLabel(items[0].parsed.x) : '',
+                        label: item => `${item.dataset.label} — visitor #${item.parsed.y}`
                     }
                 }
             }
