@@ -8,7 +8,7 @@ The Arduino emits serial messages when buttons are pressed:
 - `Button: 1` → add a visitor (or test entry in test mode)
 - `Button: 3` → undo last entry
 
-`local_app.py` reads these messages and POSTs to the remote API. A background thread also polls Open-Meteo every 15 minutes for current weather and updates the dashboard.
+`local_app.py` reads these messages and POSTs to the remote API. A background thread also polls for current weather every 15 minutes (from a Home Assistant weather entity if configured, otherwise Open-Meteo) and updates the dashboard.
 
 ## Files
 
@@ -19,7 +19,7 @@ The Arduino emits serial messages when buttons are pressed:
 | `serial_interface.py` | Thin pyserial wrapper; parses `Button: N` and `Heart: N` messages |
 | `remote_api_client.py` | HTTP client with retry/backoff |
 | `api_client.py` | Re-exports `DashboardAPIClient` from `remote_api_client.py` |
-| `fetch_weather_api.py` | Fetches weather from Open-Meteo (no API key), POSTs to `/weather` |
+| `fetch_weather_api.py` | Fetches weather from Home Assistant (falls back to Open-Meteo), POSTs to `/weather` |
 | `update_weather_script.py` | CLI utility to manually override weather on the dashboard |
 | `config.json` | Local config file — **not checked into git** (contains API key) |
 
@@ -31,7 +31,7 @@ pip install -r requirements-local.txt
 
 ## Configuration
 
-Create `local_application/config.json` (copy the example below). This file is gitignored because it contains the API key.
+Copy `local_application/config.example.json` to `local_application/config.json` and fill in `api_key` (the server's `DASHBOARD_API_KEY` from its `.env`) and `ha_token` (a Home Assistant long-lived access token). `config.json` is gitignored because it contains these secrets.
 
 ```json
 {
@@ -41,7 +41,11 @@ Create `local_application/config.json` (copy the example below). This file is gi
   "baudrate": 115200,
   "mode": "monitor",
   "latitude": 43.0292,
-  "longitude": -76.0033
+  "longitude": -76.0033,
+  "ha_url": "http://homeassistant.local:8123",
+  "ha_token": "YOUR_HA_LONG_LIVED_TOKEN",
+  "ha_weather_entity": "weather.forecast_home",
+  "ha_temperature_entity": "sensor.cotech_367959_220_temperature"
 }
 ```
 
@@ -54,7 +58,11 @@ Config precedence (highest to lowest): CLI args → `config.json` → environmen
 | `serial_port` | `SERIAL_PORT` | `COM3` | Arduino serial port |
 | `baudrate` | — | `115200` | Serial baud rate |
 | `test_mode` | `TEST_MODE` | `false` | If true, button 1 adds test entries (excluded from stats) |
-| `latitude` / `longitude` | — | — | Used for weather fetching |
+| `latitude` / `longitude` | — | — | Open-Meteo weather (fallback when Home Assistant is not configured or unreachable) |
+| `ha_url` | `HA_URL` | — | Home Assistant base URL; enables HA weather |
+| `ha_token` | `HA_TOKEN` | — | HA long-lived access token (Profile → Security) |
+| `ha_weather_entity` | `HA_WEATHER_ENTITY` | `weather.forecast_home` | HA weather entity to read the condition from |
+| `ha_temperature_entity` | `HA_TEMPERATURE_ENTITY` | `sensor.cotech_367959_220_temperature` (Back Yard Fence) | HA temperature sensor; falls back to the weather entity's temperature if unavailable |
 
 ## Running
 

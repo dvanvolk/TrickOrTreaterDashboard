@@ -66,7 +66,7 @@ Runs on a laptop physically connected to the Arduino hardware. Bridges the seria
 - `local_serial_monitor.py` (`LocalSerialMonitor`) — reads raw serial lines, calls the remote API for each button press; in test mode calls `/add_test_entry` instead of `/add_trick_or_treater`
 - `serial_interface.py` (`RadioInterface`) — thin pyserial wrapper; parses `Button: N` and `Heart: N` messages from the Arduino
 - `remote_api_client.py` (`DashboardAPIClient`) — HTTP client with retry/backoff; re-exported via `api_client.py`
-- `fetch_weather_api.py` — fetches weather from Open-Meteo (no API key needed) using lat/lon from config, then POSTs to `/weather`
+- `fetch_weather_api.py` — fetches the condition from a Home Assistant weather entity and the temperature from the Back Yard Fence sensor (`ha_url`/`ha_token`/`ha_weather_entity`/`ha_temperature_entity` in config, or matching `HA_*` env vars), falling back to Open-Meteo via lat/lon; maps HA states to the server's `VALID_CONDITIONS`, then POSTs to `/weather`
 
 **Button mapping (Arduino → action):**
 - Button 1 → add trick-or-treater (or test entry in test mode)

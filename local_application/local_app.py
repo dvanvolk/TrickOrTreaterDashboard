@@ -28,11 +28,11 @@ load_dotenv()
 # (e.g. `python local_app.py -h`) from the `local_application` folder.
 try:
     from .local_serial_monitor import LocalSerialMonitor
-    from .fetch_weather_api import fetch_weather, update_dashboard_weather
+    from .fetch_weather_api import fetch_local_weather, update_dashboard_weather
 except Exception:
     # Fallback for direct script execution
     from local_serial_monitor import LocalSerialMonitor
-    from fetch_weather_api import fetch_weather, update_dashboard_weather
+    from fetch_weather_api import fetch_local_weather, update_dashboard_weather
 
 LOGGER = logging.getLogger("local_app")
 
@@ -55,11 +55,11 @@ def start_weather_updates(api_client, config: dict, stop_event: threading.Event)
     """Run weather updates in a background thread with better rate limit handling"""
     LOGGER.info("Starting weather update thread")
 
-    latitude = config.get('latitude')
-    longitude = config.get('longitude')
+    has_ha = (config.get('ha_url') or os.environ.get('HA_URL')) and (config.get('ha_token') or os.environ.get('HA_TOKEN'))
+    has_latlon = config.get('latitude') and config.get('longitude')
 
-    if not latitude or not longitude:
-        LOGGER.error("Weather updates disabled: Missing latitude/longitude in config")
+    if not has_ha and not has_latlon:
+        LOGGER.error("Weather updates disabled: configure ha_url/ha_token or latitude/longitude")
         return
 
     def weather_update_loop():
@@ -69,7 +69,7 @@ def start_weather_updates(api_client, config: dict, stop_event: threading.Event)
 
         while not stop_event.is_set():
             try:
-                condition, temperature = fetch_weather(latitude, longitude)
+                condition, temperature = fetch_local_weather(config)
 
                 if condition is not None and temperature is not None:
                     # Try to send to dashboard
@@ -90,7 +90,7 @@ def start_weather_updates(api_client, config: dict, stop_event: threading.Event)
                                 time.sleep(30)
                             continue
                 else:
-                    LOGGER.warning("Failed to fetch weather from API")
+                    LOGGER.warning("Failed to fetch weather")
                     consecutive_failures += 1
 
                 # Normal sleep interval: 15 minutes

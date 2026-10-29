@@ -1,0 +1,13 @@
+{
+  "api_url": "https://cnytrickortreatcounter.com/",
+  "api_key": "SERVER_DASHBOARD_API_KEY",
+  "serial_port": "COM3",
+  "baudrate": 115200,
+  "mode": "monitor",
+  "latitude": 43.0292,
+  "longitude": -76.0033,
+  "ha_url": "http://homeassistant.local:8123",
+  "ha_token": "HA_LONG_LIVED_ACCESS_TOKEN",
+  "ha_weather_entity": "weather.forecast_home",
+  "ha_temperature_entity": "sensor.cotech_367959_220_temperature"
+}
