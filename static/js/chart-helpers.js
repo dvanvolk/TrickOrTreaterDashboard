@@ -50,10 +50,38 @@ function toISOStringLocal(d) {
 }
 
 /**
+ * Chart.js plugin that draws each bar's value just above the bar.
+ * Applies to every bar chart; zero-value bars are skipped to avoid clutter.
+ */
+const barValueLabelsPlugin = {
+    id: 'barValueLabels',
+    afterDatasetsDraw(chart) {
+        const ctx = chart.ctx;
+        ctx.save();
+        ctx.fillStyle = 'rgba(255,255,255,0.9)';
+        ctx.font = `bold 11px ${Chart.defaults.font.family}`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        chart.data.datasets.forEach((dataset, i) => {
+            const meta = chart.getDatasetMeta(i);
+            if (meta.type !== 'bar' || meta.hidden) return;
+            meta.data.forEach((bar, idx) => {
+                const value = dataset.data[idx];
+                if (!value) return;
+                ctx.fillText(value, bar.x, bar.y - 3);
+            });
+        });
+        ctx.restore();
+    }
+};
+
+/**
  * Apply dark-theme defaults to all Chart.js instances.
  * Call once before any charts are created (e.g., top of DOMContentLoaded).
  */
 function applyChartDefaults() {
+    Chart.register(barValueLabelsPlugin);
+    Chart.defaults.layout.padding = { top: 16 };
     Chart.defaults.color = 'rgba(255,255,255,0.8)';
     Chart.defaults.font.family = "'Nunito', Arial, sans-serif";
     Chart.defaults.plugins.tooltip.backgroundColor = 'rgba(13,13,26,0.92)';
