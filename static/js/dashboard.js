@@ -889,7 +889,7 @@ function setupPeakActivityChart() {
             ctx.textBaseline = 'middle';
             chart.getDatasetMeta(0).data.forEach((arc, idx) => {
                 const pos = arc.tooltipPosition();
-                ctx.fillText((values[idx] / total * 100).toFixed(1) + '%', pos.x, pos.y);
+                ctx.fillText(`${chart.data.labels[idx]} - ${(values[idx] / total * 100).toFixed(1)}%`, pos.x, pos.y);
             });
             ctx.restore();
         }
@@ -918,11 +918,7 @@ function setupPeakActivityChart() {
             maintainAspectRatio: false,
             plugins: {
                 legend: {
-                    position: 'bottom',
-                    labels: {
-                        padding: 20,
-                        usePointStyle: true
-                    }
+                    display: false
                 },
                 title: {
                     display: true,
