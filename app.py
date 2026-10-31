@@ -194,9 +194,9 @@ def get_elapsed_seconds() -> int:
 def next_halloween_target() -> datetime:
     eastern = ZoneInfo("America/New_York")
     now = datetime.now(eastern)
-    target = datetime(now.year, 10, 31, 18, 0, 0, tzinfo=eastern)
+    target = datetime(now.year, 10, 31, 17, 30, 0, tzinfo=eastern)
     if now >= target:
-        target = datetime(now.year + 1, 10, 31, 18, 0, 0, tzinfo=eastern)
+        target = datetime(now.year + 1, 10, 31, 17, 30, 0, tzinfo=eastern)
     return target
 
 
@@ -380,7 +380,7 @@ def get_detailed_historical():
     """Serve detailed per-entry historical data grouped by year."""
     try:
         db = get_db()
-        rows = db.execute("SELECT * FROM events ORDER BY timestamp").fetchall()
+        rows = db.execute("SELECT * FROM events WHERE is_test=0 ORDER BY timestamp").fetchall()
 
         grouped = {}
         for row in rows:
