@@ -85,15 +85,24 @@
             </div>
         </div>
 
-        <div class="chart-container full-width">
-            <div class="chart-title">📈 Year-over-Year Comparison</div>
-            <canvas id="yearComparisonChart"></canvas>
+        <div class="year-breakdown-header">
+            <div class="chart-title">🗓️ Year Comparison</div>
+            <div class="breakdown-toggle">
+                <button type="button" class="active" data-mode="arrivals">Per 15 min</button>
+                <button type="button" data-mode="cumulative">Cumulative</button>
+                <button type="button" data-mode="overlay">Overlay 15 min</button>
+                <button type="button" data-mode="overlayCumulative">Overlay Cumul.</button>
+            </div>
+        </div>
+        <div id="yearBreakdown" class="year-breakdown"></div>
+
+        <div id="overlayPanel" class="chart-container full-width overlay-panel" style="display:none;">
+            <div class="overlay-canvas"><canvas id="yearComparisonChart"></canvas></div>
             <div id="peakWindowDisplay" class="peak-window-display"></div>
         </div>
 
-        <div class="chart-container full-width" style="height: 320px;">
-            <div class="chart-title">📈 Cumulative Arrivals by Year</div>
-            <canvas id="cumulativeChart"></canvas>
+        <div id="overlayCumulativePanel" class="chart-container full-width overlay-panel" style="display:none;">
+            <div class="overlay-canvas"><canvas id="cumulativeChart"></canvas></div>
         </div>
 
         <div class="charts-grid">

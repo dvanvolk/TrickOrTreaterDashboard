@@ -1358,7 +1358,42 @@ function setupCumulativeChart() {
     });
 }
 
+function getCumulativePoints(year) {
+    const points = [];
+
+    if (detailedHistorical && detailedHistorical[year]) {
+        // Per-entry data: each entry → a point (minutes since midnight, running total)
+        const entries = [...detailedHistorical[year]].sort((a, b) =>
+            new Date(a.timestamp) - new Date(b.timestamp)
+        );
+        let running = 0;
+        entries.forEach(e => {
+            if (!e.timestamp) return;
+            const d = new Date(e.timestamp);
+            const minOfDay = d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60;
+            if (minOfDay < EVENT_START_MIN - 60 || minOfDay > EVENT_END_MIN + 60) return;
+            running += (e.count || 1);
+            points.push({ x: minOfDay, y: running });
+        });
+    } else if (historicalData && historicalData[year]) {
+        // 15-min bucket data: sorted slots → stepped cumulative
+        const slots = Object.entries(historicalData[year])
+            .map(([slot, d]) => ({ slot, total: d.total || 0 }))
+            .sort((a, b) => a.slot.localeCompare(b.slot));
+        let running = 0;
+        slots.forEach(({ slot, total }) => {
+            const [hh, mm] = slot.split(':');
+            const minOfDay = parseInt(hh) * 60 + parseInt(mm);
+            if (minOfDay < EVENT_START_MIN - 60 || minOfDay > EVENT_END_MIN + 60) return;
+            running += total;
+            points.push({ x: minOfDay, y: running });
+        });
+    }
+    return points;
+}
+
 function updateCumulativeChart() {
+    updateYearBreakdown();
     if (!charts.cumulative) return;
 
     const datasets = [];
@@ -1368,37 +1403,7 @@ function updateCumulativeChart() {
     ]);
 
     allYears.forEach(year => {
-        const points = [];
-
-        if (detailedHistorical && detailedHistorical[year]) {
-            // Per-entry data: each entry → a point (minutes since midnight, running total)
-            const entries = [...detailedHistorical[year]].sort((a, b) =>
-                new Date(a.timestamp) - new Date(b.timestamp)
-            );
-            let running = 0;
-            entries.forEach(e => {
-                if (!e.timestamp) return;
-                const d = new Date(e.timestamp);
-                const minOfDay = d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60;
-                if (minOfDay < EVENT_START_MIN - 60 || minOfDay > EVENT_END_MIN + 60) return;
-                running += (e.count || 1);
-                points.push({ x: minOfDay, y: running });
-            });
-        } else if (historicalData && historicalData[year]) {
-            // 15-min bucket data: sorted slots → stepped cumulative
-            const slots = Object.entries(historicalData[year])
-                .map(([slot, d]) => ({ slot, total: d.total || 0 }))
-                .sort((a, b) => a.slot.localeCompare(b.slot));
-            let running = 0;
-            slots.forEach(({ slot, total }) => {
-                const [hh, mm] = slot.split(':');
-                const minOfDay = parseInt(hh) * 60 + parseInt(mm);
-                if (minOfDay < EVENT_START_MIN - 60 || minOfDay > EVENT_END_MIN + 60) return;
-                running += total;
-                points.push({ x: minOfDay, y: running });
-            });
-        }
-
+        const points = getCumulativePoints(year);
         if (points.length === 0) return;
         const color = getYearColor(year);
         datasets.push({
@@ -1418,6 +1423,163 @@ function updateCumulativeChart() {
     charts.cumulative.data.datasets = datasets;
     charts.cumulative.update();
 }
+
+// ── Year-by-year breakdown (stacked, aligned rows) ─────────────────────────
+
+let breakdownMode = 'arrivals';
+const breakdownCharts = {};
+let breakdownSignature = '';
+
+function minsToClock(val) {
+    const h = Math.floor(val / 60);
+    const m = String(Math.round(val % 60)).padStart(2, '0');
+    const h12 = h > 12 ? h - 12 : (h === 0 ? 12 : h);
+    return `${h12}:${m} ${h >= 12 ? 'PM' : 'AM'}`;
+}
+
+function setupBreakdownToggle() {
+    document.querySelectorAll('.breakdown-toggle button').forEach(btn => {
+        btn.addEventListener('click', () => {
+            breakdownMode = btn.dataset.mode;
+            document.querySelectorAll('.breakdown-toggle button').forEach(b =>
+                b.classList.toggle('active', b === btn));
+            showBreakdownMode();
+        });
+    });
+}
+
+function showBreakdownMode() {
+    const stacked = breakdownMode === 'arrivals' || breakdownMode === 'cumulative';
+    document.getElementById('yearBreakdown').style.display = stacked ? '' : 'none';
+    document.getElementById('overlayPanel').style.display = breakdownMode === 'overlay' ? '' : 'none';
+    document.getElementById('overlayCumulativePanel').style.display =
+        breakdownMode === 'overlayCumulative' ? '' : 'none';
+    if (stacked) {
+        updateYearBreakdown();
+    } else {
+        const chart = breakdownMode === 'overlay' ? charts.yearComparison : charts.cumulative;
+        if (chart) { chart.resize(); chart.update('none'); }
+    }
+}
+
+function isNarrowScreen() {
+    return window.innerWidth < 600;
+}
+
+function updateYearBreakdown() {
+    const host = document.getElementById('yearBreakdown');
+    if (!host || (breakdownMode !== 'arrivals' && breakdownMode !== 'cumulative')) return;
+
+    const years = Array.from(new Set([
+        ...Object.keys(historicalData || {}),
+        ...Object.keys(detailedHistorical || {})
+    ])).sort().reverse();
+
+    // Shared x categories / y max so every row lines up
+    const slots = Array.from(new Set(
+        Object.values(historicalData || {}).flatMap(y => Object.keys(y))
+    )).sort();
+    const labels = slots.map(s => {
+        const [h, m] = s.split(':');
+        return formatTime(new Date(2000, 0, 1, parseInt(h), parseInt(m)));
+    });
+
+    const rows = years.map(year => {
+        if (breakdownMode === 'arrivals') {
+            const yearData = (historicalData || {})[year] || {};
+            const data = slots.map(s => yearData[s] ? yearData[s].average : 0);
+            return { year, data, total: data.reduce((a, b) => a + b, 0), max: Math.max(0, ...data) };
+        }
+        const data = getCumulativePoints(year);
+        const total = data.length ? data[data.length - 1].y : 0;
+        return { year, data, total, max: total };
+    }).filter(r => r.max > 0);
+
+    const yMax = Math.max(1, ...rows.map(r => r.max));
+    const signature = breakdownMode + '|' + rows.map(r => r.year).join(',');
+
+    if (signature !== breakdownSignature) {
+        Object.values(breakdownCharts).forEach(c => c.destroy());
+        Object.keys(breakdownCharts).forEach(k => delete breakdownCharts[k]);
+        host.innerHTML = '';
+        rows.forEach(r => {
+            const card = document.createElement('div');
+            card.className = 'chart-container year-row';
+            card.innerHTML = `<div class="year-row-title" style="color:${getYearColor(r.year)}"></div>` +
+                '<div class="year-row-canvas"><canvas></canvas></div>';
+            card.dataset.year = r.year;
+            host.appendChild(card);
+            breakdownCharts[r.year] = createBreakdownChart(card.querySelector('canvas'), r.year);
+        });
+        breakdownSignature = signature;
+    }
+
+    rows.forEach(r => {
+        const chart = breakdownCharts[r.year];
+        if (!chart) return;
+        const title = host.querySelector(`[data-year="${r.year}"] .year-row-title`);
+        if (title) {
+            title.textContent = breakdownMode === 'arrivals'
+                ? `${r.year} — ${Math.round(r.total)} total`
+                : `${r.year} — ${r.total} visitors`;
+        }
+        if (breakdownMode === 'arrivals') chart.data.labels = labels;
+        chart.data.datasets[0].data = r.data;
+        chart.options.scales.y.max = yMax;
+        chart.update('none');
+    });
+}
+
+function createBreakdownChart(canvas, year) {
+    const color = getYearColor(year);
+    const cumulative = breakdownMode === 'cumulative';
+    const yAxis = {
+        beginAtZero: true,
+        afterFit: scale => { scale.width = isNarrowScreen() ? 32 : 45; }  // same plot-left edge on every row
+    };
+    return new Chart(canvas, {
+        type: cumulative ? 'scatter' : 'bar',
+        data: {
+            labels: [],
+            datasets: [{
+                data: [],
+                borderColor: color,
+                backgroundColor: cumulative ? color + '20' : color + 'cc',
+                showLine: cumulative,
+                borderWidth: 2,
+                pointRadius: cumulative ? 1 : 0,
+                tension: 0.3
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            scales: {
+                x: cumulative ? {
+                    type: 'linear',
+                    min: EVENT_START_MIN - 30,
+                    max: EVENT_END_MIN + 30,
+                    ticks: { callback: minsToClock, maxTicksLimit: isNarrowScreen() ? 4 : 9 }
+                } : {
+                    ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: isNarrowScreen() ? 4 : 14 }
+                },
+                y: yAxis
+            },
+            plugins: {
+                legend: { display: false },
+                tooltip: cumulative ? {
+                    callbacks: {
+                        title: items => items.length ? minsToClock(items[0].parsed.x) : '',
+                        label: item => `visitor #${item.parsed.y}`
+                    }
+                } : {}
+            }
+        }
+    });
+}
+
+document.addEventListener('DOMContentLoaded', setupBreakdownToggle);
 
 // ── Polling intervals ──────────────────────────────────────────────────────
 

@@ -108,6 +108,54 @@ body {
     height: 250px;
 }
 
+.year-breakdown-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 10px 0;
+}
+
+.breakdown-toggle {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.breakdown-toggle button {
+    border-radius: 8px;
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    color: inherit;
+    padding: 6px 14px;
+    cursor: pointer;
+}
+
+.breakdown-toggle button.active {
+    background: var(--accent);
+    color: #fff;
+}
+
+.year-breakdown {
+    margin-bottom: 30px;
+}
+
+.chart-container.year-row {
+    height: 170px;
+    margin-bottom: 10px;
+    padding: 10px 20px;
+}
+
+.year-row .year-row-title {
+    font-size: 0.95em;
+    font-weight: 700;
+    margin-bottom: 4px;
+}
+
+.year-row .year-row-canvas {
+    position: relative;
+    height: 130px;
+}
+
 .chart-title {
     font-size: 1.2em;
     margin-bottom: 15px;
@@ -173,6 +221,41 @@ body {
 @media (max-width: 768px) {
     .charts-grid {
         grid-template-columns: 1fr;
+    }
+}
+
+.chart-container.overlay-panel {
+    height: auto;
+}
+
+.overlay-panel .overlay-canvas {
+    position: relative;
+    height: 320px;
+}
+
+@media (max-width: 600px) {
+    .year-breakdown-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+    }
+    .breakdown-toggle button {
+        flex: 1 1 45%;
+        padding: 8px 6px;
+        font-size: 0.85em;
+    }
+    .chart-container.year-row {
+        height: 150px;
+        padding: 8px 10px;
+    }
+    .year-row .year-row-canvas {
+        height: 115px;
+    }
+    .chart-container.overlay-panel {
+        padding: 10px;
+    }
+    .overlay-panel .overlay-canvas {
+        height: 360px;
     }
 }
 
