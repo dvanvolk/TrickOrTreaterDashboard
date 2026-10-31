@@ -16,6 +16,17 @@ const MILESTONES = [25, 50, 75, 100, 150, 200];
 let countdownTarget = null;
 let isHalloween = false;
 
+// Trick-or-treat window (local time, minutes since midnight): light is on 5:30-8 PM
+const EVENT_START_MIN = 17 * 60 + 30;
+const EVENT_END_MIN = 20 * 60;
+
+// Local Date for today's window boundary, or for a given year's Oct 31
+function eventTime(minutes, year) {
+    const d = year ? new Date(year, 9, 31) : new Date();
+    d.setHours(Math.floor(minutes / 60), minutes % 60, 0, 0);
+    return d;
+}
+
 // Ordered color palette for years — extends automatically for 2026+
 const YEAR_COLOR_PALETTE = [
     '#ff6b35', '#4ecdc4', '#45b7d1', '#96ceb4',
@@ -1186,10 +1197,8 @@ function updatePaceVsLastYear(currentTotal) {
     const currentYear = now.getFullYear();
     const lastYear = currentYear - 1;
 
-    // Minutes since 6 PM Eastern today
-    const sixPmToday = new Date(now);
-    sixPmToday.setHours(18, 0, 0, 0);
-    const elapsedMs = now - sixPmToday;
+    // Time elapsed since the start of today's window
+    const elapsedMs = now - eventTime(EVENT_START_MIN);
     if (elapsedMs <= 0) { el.textContent = '--'; el.className = 'stat-number'; return; }
     const elapsedMin = elapsedMs / 60000;
 
@@ -1198,7 +1207,7 @@ function updatePaceVsLastYear(currentTotal) {
 
     if (detailedHistorical && detailedHistorical[lastYearStr]) {
         // Per-entry data: count entries from last year's Oct 31 within the same elapsed window
-        const cutoff = new Date(`${lastYear}-10-31T18:00:00`);
+        const cutoff = eventTime(EVENT_START_MIN, lastYear);
         const cutoffEnd = new Date(cutoff.getTime() + elapsedMs);
         for (const entry of detailedHistorical[lastYearStr]) {
             const ts = new Date(entry.timestamp);
@@ -1206,7 +1215,7 @@ function updatePaceVsLastYear(currentTotal) {
         }
     } else if (historicalData && historicalData[lastYearStr]) {
         // 15-min bucket data: sum slots up to the elapsed time slot
-        const cutoffSlot = new Date(new Date(`${lastYear}-10-31T18:00:00`).getTime() + elapsedMs);
+        const cutoffSlot = new Date(eventTime(EVENT_START_MIN, lastYear).getTime() + elapsedMs);
         const cutoffHHMM = `${String(cutoffSlot.getHours()).padStart(2,'0')}:${String(cutoffSlot.getMinutes()).padStart(2,'0')}`;
         Object.entries(historicalData[lastYearStr]).forEach(([slot, d]) => {
             if (slot <= cutoffHHMM) lastYearTotal += (d.total || 0);
@@ -1287,12 +1296,12 @@ function updateProjectedTotal(currentTotal) {
     if (!card || !el) return;
 
     const now = new Date();
-    const sixPm = new Date(now); sixPm.setHours(18, 0, 0, 0);
-    const tenPm = new Date(now); tenPm.setHours(22, 0, 0, 0);
-    const totalPossibleMs = tenPm - sixPm;
-    const elapsedMs = now - sixPm;
+    const windowStart = eventTime(EVENT_START_MIN);
+    const windowEnd = eventTime(EVENT_END_MIN);
+    const totalPossibleMs = windowEnd - windowStart;
+    const elapsedMs = now - windowStart;
 
-    if (currentTotal < 3 || elapsedMs <= 0 || now >= tenPm) {
+    if (currentTotal < 3 || elapsedMs <= 0 || now >= windowEnd) {
         card.style.display = 'none';
         return;
     }
@@ -1310,7 +1319,7 @@ function setupCumulativeChart() {
 
     function minsToLabel(val) {
         if (typeof val !== 'number' || !isFinite(val)) return '';
-        const h = Math.floor(val / 60) + 18;
+        const h = Math.floor(val / 60);
         const m = String(Math.round(val % 60)).padStart(2, '0');
         const ampm = h >= 12 ? 'PM' : 'AM';
         const h12 = h > 12 ? h - 12 : (h === 0 ? 12 : h);
@@ -1327,6 +1336,8 @@ function setupCumulativeChart() {
             scales: {
                 x: {
                     type: 'linear',
+                    min: EVENT_START_MIN - 30,
+                    max: EVENT_END_MIN + 30,
                     title: { display: true, text: 'Time of Evening' },
                     ticks: { callback: minsToLabel, maxTicksLimit: 9 }
                 },
@@ -1360,7 +1371,7 @@ function updateCumulativeChart() {
         const points = [];
 
         if (detailedHistorical && detailedHistorical[year]) {
-            // Per-entry data: each entry → a point (minutes-since-6pm, running total)
+            // Per-entry data: each entry → a point (minutes since midnight, running total)
             const entries = [...detailedHistorical[year]].sort((a, b) =>
                 new Date(a.timestamp) - new Date(b.timestamp)
             );
@@ -1368,10 +1379,10 @@ function updateCumulativeChart() {
             entries.forEach(e => {
                 if (!e.timestamp) return;
                 const d = new Date(e.timestamp);
-                const minSince6pm = (d.getHours() - 18) * 60 + d.getMinutes() + d.getSeconds() / 60;
-                if (minSince6pm < -60 || minSince6pm > 360) return;
+                const minOfDay = d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60;
+                if (minOfDay < EVENT_START_MIN - 60 || minOfDay > EVENT_END_MIN + 60) return;
                 running += (e.count || 1);
-                points.push({ x: minSince6pm, y: running });
+                points.push({ x: minOfDay, y: running });
             });
         } else if (historicalData && historicalData[year]) {
             // 15-min bucket data: sorted slots → stepped cumulative
@@ -1381,10 +1392,10 @@ function updateCumulativeChart() {
             let running = 0;
             slots.forEach(({ slot, total }) => {
                 const [hh, mm] = slot.split(':');
-                const minSince6pm = (parseInt(hh) - 18) * 60 + parseInt(mm);
-                if (minSince6pm < -60 || minSince6pm > 360) return;
+                const minOfDay = parseInt(hh) * 60 + parseInt(mm);
+                if (minOfDay < EVENT_START_MIN - 60 || minOfDay > EVENT_END_MIN + 60) return;
                 running += total;
-                points.push({ x: minSince6pm, y: running });
+                points.push({ x: minOfDay, y: running });
             });
         }
 
