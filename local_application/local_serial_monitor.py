@@ -96,6 +96,10 @@ class LocalSerialMonitor:
             else:
                 all_data = []
             
+            # Flag test-mode entries so a replay via /upload_batch stays excluded from stats
+            if self.test_mode:
+                data = {**data, 'test': True}
+
             # Append new data
             all_data.append(data)
             
