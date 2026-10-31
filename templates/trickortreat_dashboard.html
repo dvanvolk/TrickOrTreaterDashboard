@@ -85,7 +85,18 @@
             </div>
         </div>
 
-        <div class="year-breakdown-header">
+        <div class="charts-grid section-divider">
+            <div class="chart-container">
+                <div class="chart-title">📊 Year Summary Statistics</div>
+                <canvas id="yearStatsChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <div class="chart-title">🔥 Peak Activity Times</div>
+                <canvas id="peakActivityChart"></canvas>
+            </div>
+        </div>
+
+        <div class="year-breakdown-header section-divider">
             <div class="chart-title">🗓️ Year Comparison</div>
             <div class="breakdown-toggle">
                 <button type="button" class="active" data-mode="arrivals">Per 15 min</button>
@@ -105,19 +116,8 @@
             <div class="overlay-canvas"><canvas id="cumulativeChart"></canvas></div>
         </div>
 
-        <div class="charts-grid">
-            <div class="chart-container">
-                <div class="chart-title">📊 Year Summary Statistics</div>
-                <canvas id="yearStatsChart"></canvas>
-            </div>
-            <div class="chart-container">
-                <div class="chart-title">🔥 Peak Activity Times</div>
-                <canvas id="peakActivityChart"></canvas>
-            </div>
-        </div>
-
         <!-- Detailed per-arrival charts for a selected year -->
-        <div class="charts-grid">
+        <div class="charts-grid section-divider">
             <div class="chart-container">
                 <div class="chart-title">🕒 Detailed Arrival Minutes (per minute) — Year: <span id="detailedYearLabel"></span>
                     <select id="yearSelector" style="margin-left:12px;">
