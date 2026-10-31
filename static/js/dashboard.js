@@ -889,7 +889,8 @@ function setupPeakActivityChart() {
             ctx.textBaseline = 'middle';
             chart.getDatasetMeta(0).data.forEach((arc, idx) => {
                 const pos = arc.tooltipPosition();
-                ctx.fillText(`${chart.data.labels[idx]} - ${(values[idx] / total * 100).toFixed(1)}%`, pos.x, pos.y);
+                ctx.fillText(chart.data.labels[idx], pos.x, pos.y - 8);
+                ctx.fillText((values[idx] / total * 100).toFixed(1) + '%', pos.x, pos.y + 8);
             });
             ctx.restore();
         }

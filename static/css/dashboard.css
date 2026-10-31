@@ -103,6 +103,10 @@ body {
     height: 300px;
 }
 
+.chart-container.tall {
+    height: 450px;
+}
+
 .chart-container.full-width {
     grid-column: 1 / -1;
     height: 250px;
