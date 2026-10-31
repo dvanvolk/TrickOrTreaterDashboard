@@ -577,6 +577,9 @@ function updateDetailedScatterChart(yearParam) {
 
     const entries = detailedHistorical[yearToShow] || [];
 
+    const titleEl = document.getElementById('detailedScatterTitle');
+    if (titleEl) titleEl.textContent = `✨ Visitor Scatter (each dot is one visitor) — Year: ${yearToShow}`;
+
     const points = [];
     entries.forEach((e, idx) => {
         let ts = e.timestamp;
