@@ -94,6 +94,46 @@ python local_application/update_weather_script.py --condition Clear --temperatur
 python local_application/update_weather_script.py --get
 ```
 
+## Command Cheat Sheet
+
+All commands run from the project root (Git Bash). Replace `<key>` with the `api_key` from `config.json`. In PowerShell use `curl.exe` and `.venv\Scripts\...` paths.
+
+```bash
+# One-time setup
+.venv/Scripts/python.exe -m pip install -r requirements-local.txt
+
+# List serial ports (the radio is on COM12)
+.venv/Scripts/pyserial-ports.exe
+
+# Rehearsal: button presses create test entries (excluded from stats)
+.venv/Scripts/python.exe -m local_application.local_app --test-mode
+
+# Live count night: real entries
+.venv/Scripts/python.exe -m local_application.local_app
+
+# Override the serial port / server for one run
+.venv/Scripts/python.exe -m local_application.local_app --port COM12 --api-url https://cnytrickortreatcounter.com/ --api-key <key>
+
+# Check live mode
+curl https://cnytrickortreatcounter.com/live_status
+
+# Force live mode OFF (e.g. after a run that didn't exit cleanly)
+curl -X POST https://cnytrickortreatcounter.com/set_live -H "X-API-Key: <key>" -H "Content-Type: application/json" -d '{"live":false}'
+
+# Set / read weather manually
+export DASHBOARD_API_URL=https://cnytrickortreatcounter.com/ DASHBOARD_API_KEY=<key>
+.venv/Scripts/python.exe local_application/update_weather_script.py --condition Clear --temperature 58
+.venv/Scripts/python.exe local_application/update_weather_script.py --get
+
+# Deploy server changes (after pushing to origin/main)
+ssh dan@192.168.10.171 /home/dan/trickortreat-dashboard/deploy.sh
+
+# Server logs
+ssh dan@192.168.10.171 "docker logs --tail 200 trickortreat_dashboard"
+```
+
+Stop the app with `Ctrl+C`. It turns live mode on at startup, so if the window is closed or killed instead, run the "Force live mode OFF" command.
+
 ## Button Mapping
 
 | Arduino Button | Action |
