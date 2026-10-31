@@ -875,8 +875,28 @@ function setupYearStatsChart() {
 
 function setupPeakActivityChart() {
     const ctx = document.getElementById('peakActivityChart').getContext('2d');
+    const sliceLabelsPlugin = {
+        id: 'sliceLabels',
+        afterDatasetsDraw(chart) {
+            const ctx = chart.ctx;
+            const values = chart.data.datasets[0].data;
+            const total = values.reduce((sum, v) => sum + v, 0);
+            if (!total) return;
+            ctx.save();
+            ctx.fillStyle = '#fff';
+            ctx.font = `bold 12px ${Chart.defaults.font.family}`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            chart.getDatasetMeta(0).data.forEach((arc, idx) => {
+                const pos = arc.tooltipPosition();
+                ctx.fillText((values[idx] / total * 100).toFixed(1) + '%', pos.x, pos.y);
+            });
+            ctx.restore();
+        }
+    };
     charts.peakActivity = new Chart(ctx, {
         type: 'doughnut',
+        plugins: [sliceLabelsPlugin],
         data: {
             labels: [],
             datasets: [{
@@ -913,7 +933,9 @@ function setupPeakActivityChart() {
                         label: function(context) {
                             const label = context.label || '';
                             const value = context.parsed;
-                            return label + ': ' + value + ' visitors';
+                            const total = context.dataset.data.reduce((sum, v) => sum + v, 0);
+                            const pct = total ? (value / total * 100).toFixed(1) : '0.0';
+                            return label + ': ' + value + ' visitors (' + pct + '%)';
                         }
                     }
                 }
@@ -1109,6 +1131,9 @@ function updateYearStatsChart() {
     
     charts.yearStats.data.labels = years;
     charts.yearStats.data.datasets[0].data = totals;
+    const grandTotal = totals.reduce((sum, t) => sum + t, 0);
+    charts.yearStats.options.plugins.title.text =
+        `Total Trick-or-Treaters by Year (${grandTotal} over ${years.length} years)`;
     charts.yearStats.update();
 }
 
