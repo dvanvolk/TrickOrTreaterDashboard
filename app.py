@@ -29,6 +29,17 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__, static_folder='static', static_url_path='/static')
 
+
+@app.url_defaults
+def add_static_version(endpoint, values):
+    """Append ?v=<mtime> to static URLs so browsers/Cloudflare refetch changed files."""
+    if endpoint == 'static' and 'filename' in values:
+        try:
+            path = os.path.join(app.static_folder, values['filename'])
+            values['v'] = int(os.path.getmtime(path))
+        except OSError:
+            pass
+
 # Configuration
 API_KEY = os.environ.get('DASHBOARD_API_KEY', '')
 if not API_KEY:
