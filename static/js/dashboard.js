@@ -41,11 +41,11 @@ function getYearColor(year) {
 }
 
 // Session bounds: when the light was turned on/off, falling back to the first/last entry
-function getSessionBounds(entries) {
-    const start = sessionWindow.start ? new Date(sessionWindow.start) : new Date(entries[0].timestamp);
+function getSessionBounds(entries, useWindow = true) {
+    const start = useWindow && sessionWindow.start ? new Date(sessionWindow.start) : new Date(entries[0].timestamp);
     let end;
-    if (sessionWindow.end) end = new Date(sessionWindow.end);
-    else if (liveStatus) end = new Date();
+    if (useWindow && sessionWindow.end) end = new Date(sessionWindow.end);
+    else if (useWindow && liveStatus) end = new Date();
     else end = new Date(entries[entries.length - 1].timestamp);
     return { start, end };
 }
@@ -90,6 +90,7 @@ function updateLiveStatusDisplay() {
         if (weatherContainer) weatherContainer.style.display = 'none';
     }
     updateCountdownVisibility();
+    updateBlankChartVisibility();
 }
 
 function updateStatsVisibility() {
@@ -255,11 +256,25 @@ async function saveSummaryData() {
         if (summaryContainer) {
             summaryContainer.innerHTML = '<p style="color: #ff6b35; font-size: 1.2em;">No data from this session</p>';
         }
+        updateBlankChartVisibility();
         return;
     }
-    
+
+    buildSummary(dataToSave, true);
+}
+
+// Summary of the most recent year with data, shown while the light is off (e.g. the off-season)
+function showLastYearSummary() {
+    if (liveStatus || savedSummary) return;
+    const years = Object.keys(detailedHistorical).filter(y => detailedHistorical[y].length > 0)
+        .map(y => parseInt(y, 10)).sort((a, b) => a - b);
+    if (years.length === 0) return;
+    buildSummary(detailedHistorical[years[years.length - 1]], false);
+}
+
+function buildSummary(dataToSave, useWindow) {
     console.log(`Creating summary from ${dataToSave.length} entries`);
-    
+
     const totalToday = dataToSave.reduce((sum, entry) => sum + entry.count, 0);
     
     const minuteGroups = {};
@@ -285,7 +300,7 @@ async function saveSummaryData() {
         minuteData[minuteKey] += entry.count;
     });
     
-    const bounds = getSessionBounds(dataToSave);
+    const bounds = getSessionBounds(dataToSave, useWindow);
 
     savedSummary = {
         total: totalToday,
@@ -378,6 +393,18 @@ function displaySummaryCharts() {
     charts.timeline.data.labels = labels;
     charts.timeline.data.datasets[0].data = data;
     charts.timeline.update();
+    updateBlankChartVisibility();
+}
+
+// Hide the live-session charts while the light is off and there is nothing to plot
+function updateBlankChartVisibility() {
+    const show = liveStatus || !!savedSummary;
+    ['minuteChart', 'timelineChart'].forEach(id => {
+        const container = document.getElementById(id)?.closest('.chart-container');
+        if (container) container.style.display = show ? '' : 'none';
+    });
+    const grid = document.getElementById('minuteChart')?.closest('.charts-grid');
+    if (grid) grid.style.display = show ? '' : 'none';
 }
 
 function clearSummaryData() {
@@ -540,6 +567,7 @@ async function loadDetailedData() {
         updateDetailedScatterChart();
         computePeakWindows();
         updateCumulativeChart();
+        showLastYearSummary();
     } catch (err) {
         console.error('Error loading detailed historical data:', err);
     }
