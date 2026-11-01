@@ -253,7 +253,7 @@ async function saveSummaryData() {
     const minuteGroups = {};
     dataToSave.forEach(entry => {
         const localDate = new Date(entry.timestamp);
-        const minutes = Math.floor(localDate.getMinutes() / 10) * 10;
+        const minutes = Math.floor(localDate.getMinutes() / 15) * 15;
         const timeKey = `${localDate.getHours().toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
         
         if (!minuteGroups[timeKey]) {
@@ -1039,7 +1039,7 @@ function updateMinuteChart() {
     const minuteGroups = {};
     currentData.forEach(entry => {
         const localDate = new Date(entry.timestamp);
-        const minutes = Math.floor(localDate.getMinutes() / 10) * 10;
+        const minutes = Math.floor(localDate.getMinutes() / 15) * 15;
         const timeKey = `${localDate.getHours().toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
         
         if (!minuteGroups[timeKey]) {
