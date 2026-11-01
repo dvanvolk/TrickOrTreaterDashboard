@@ -33,11 +33,11 @@ def archive_year(year: int):
         
         if response.status_code == 200:
             result = response.json()
-            print(f"✓ Success: {result.get('message')}")
+            print(f"Success: {result.get('message')}")
             print(f"  Intervals archived: {result.get('intervals_archived')}")
             return True
         else:
-            print(f"✗ Error: HTTP {response.status_code}")
+            print(f"Error: HTTP {response.status_code}")
             try:
                 error = response.json()
                 print(f"  {error.get('error', 'Unknown error')}")
@@ -46,7 +46,7 @@ def archive_year(year: int):
             return False
             
     except requests.exceptions.RequestException as e:
-        print(f"✗ Connection error: {e}")
+        print(f"Connection error: {e}")
         return False
 
 def main():
