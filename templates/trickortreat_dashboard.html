@@ -185,6 +185,8 @@
 
                     pollIntervalMs = MIN_POLL;
 
+                    sessionWindow = { start: data.session_start || null, end: data.session_end || null };
+
                     // Detect transition from live to non-live
                     const wasLive = liveStatus;
                     const nowLive = data.live;

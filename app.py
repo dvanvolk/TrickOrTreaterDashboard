@@ -124,7 +124,9 @@ def load_live_mode_from_file():
                 state = {
                     'enabled': bool(data.get('enabled', False)),
                     'start_time': data.get('start_time'),
-                    'owner': data.get('owner')
+                    'owner': data.get('owner'),
+                    'session_start': data.get('session_start'),
+                    'session_end': data.get('session_end')
                 }
                 # Validate start_time if present
                 if state['start_time']:
@@ -166,7 +168,9 @@ def save_live_mode_to_file(state: dict):
             json.dump({
                 'enabled': bool(state.get('enabled', False)),
                 'start_time': state.get('start_time'),
-                'owner': state.get('owner')
+                'owner': state.get('owner'),
+                'session_start': state.get('session_start'),
+                'session_end': state.get('session_end')
             }, lf)
         # atomic replace
         os.replace(tmp, LIVE_MODE_FILE)
@@ -236,7 +240,9 @@ def get_live_status():
     state = load_live_mode_from_file()
     return jsonify({
         'live': state.get('enabled', False),
-        'elapsed_seconds': get_elapsed_seconds()
+        'elapsed_seconds': get_elapsed_seconds(),
+        'session_start': state.get('session_start'),
+        'session_end': state.get('session_end')
     })
 
 
@@ -265,7 +271,9 @@ def set_live():
             new_state.update({
                 'enabled': True,
                 'start_time': datetime.now().isoformat(),
-                'owner': owner
+                'owner': owner,
+                'session_start': datetime.now(timezone.utc).isoformat(),
+                'session_end': None
             })
             logger.info("Live mode will be ENABLED (owner=%s)", owner)
         elif not desired and current.get('enabled'):
@@ -282,7 +290,8 @@ def set_live():
                 new_state.update({
                     'enabled': False,
                     'start_time': None,
-                    'owner': None
+                    'owner': None,
+                    'session_end': datetime.now(timezone.utc).isoformat()
                 })
                 logger.info("Live mode will be DISABLED (requested by=%s)", owner)
         else:

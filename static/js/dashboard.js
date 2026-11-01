@@ -9,6 +9,8 @@ let _currentDataSnapshot = null;
 let _detailedHistoricalSnapshot = null;
 // Summary data saved when live mode is disabled
 let savedSummary = null;
+// Light on/off times from the server (ISO UTC strings, or null)
+let sessionWindow = { start: null, end: null };
 // Milestone tracking
 let _previousCount = 0;
 let _allTimeHigh = 0;
@@ -36,6 +38,16 @@ const YEAR_COLOR_PALETTE = [
 function getYearColor(year) {
     const idx = (parseInt(year, 10) - 2022 + YEAR_COLOR_PALETTE.length) % YEAR_COLOR_PALETTE.length;
     return YEAR_COLOR_PALETTE[Math.max(0, idx)];
+}
+
+// Session bounds: when the light was turned on/off, falling back to the first/last entry
+function getSessionBounds(entries) {
+    const start = sessionWindow.start ? new Date(sessionWindow.start) : new Date(entries[0].timestamp);
+    let end;
+    if (sessionWindow.end) end = new Date(sessionWindow.end);
+    else if (liveStatus) end = new Date();
+    else end = new Date(entries[entries.length - 1].timestamp);
+    return { start, end };
 }
 
 // Initialize dashboard on page load
@@ -273,12 +285,14 @@ async function saveSummaryData() {
         minuteData[minuteKey] += entry.count;
     });
     
+    const bounds = getSessionBounds(dataToSave);
+
     savedSummary = {
         total: totalToday,
         minuteGroups: minuteGroups,
         minuteData: minuteData,
-        firstTimestamp: dataToSave[0].timestamp,
-        lastTimestamp: dataToSave[dataToSave.length - 1].timestamp,
+        firstTimestamp: bounds.start.toISOString(),
+        lastTimestamp: bounds.end.toISOString(),
         year: new Date(dataToSave[0].timestamp).getFullYear()
     };
     
@@ -1003,10 +1017,7 @@ function updateTimelineChart() {
     });
     
     if (currentData.length > 0) {
-        const firstTimestamp = currentData[0].timestamp.replace('Z', '');
-        const lastTimestamp = currentData[currentData.length - 1].timestamp.replace('Z', '');
-        const firstEntry = new Date(firstTimestamp);
-        const lastEntry = new Date(lastTimestamp);
+        const { start: firstEntry, end: lastEntry } = getSessionBounds(currentData);
         
         const labels = [];
         const data = [];
@@ -1095,15 +1106,9 @@ function updateStats() {
     }
     document.getElementById('peakMinute').textContent = maxPeak;
 
-    let avgPerMinute = 0;
-    if (currentData.length >= 2) {
-        const firstTime = new Date(currentData[0].timestamp).getTime();
-        const lastTime = new Date(currentData[currentData.length - 1].timestamp).getTime();
-        const elapsedMinutes = (lastTime - firstTime) / 60000;
-        if (elapsedMinutes > 0) {
-            avgPerMinute = totalToday / elapsedMinutes;
-        }
-    }
+    const { start, end } = getSessionBounds(currentData);
+    const elapsedMinutes = (end - start) / 60000;
+    const avgPerMinute = elapsedMinutes > 0 ? totalToday / elapsedMinutes : 0;
     document.getElementById('avgPerMinute').textContent = avgPerMinute.toFixed(1);
     
     if (currentData.length > 0) {
